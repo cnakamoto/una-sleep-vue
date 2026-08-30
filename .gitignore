@@ -1,0 +1,12 @@
+# UNA SDK — external dependency, cloned separately (see env.sh)
+una-sdk/
+
+# Python virtualenv (pip deps: pyelftools, Pillow)
+.venv/
+
+# IDE / OS
+.idea/
+.DS_Store
+
+# App build output
+SleepAnalytics/build/
