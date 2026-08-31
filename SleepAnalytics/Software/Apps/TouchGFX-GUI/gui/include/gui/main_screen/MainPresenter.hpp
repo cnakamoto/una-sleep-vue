@@ -31,6 +31,9 @@ public:
         model->exitApp();
     }
 
+    /** Forwards the probe summary from the model to the view. */
+    void onProbeStats(const CustomMessage::ProbeStatsData& stats) override;
+
 private:
     MainPresenter();
 

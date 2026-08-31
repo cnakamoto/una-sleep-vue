@@ -16,3 +16,8 @@ void MainPresenter::deactivate()
 {
 
 }
+
+void MainPresenter::onProbeStats(const CustomMessage::ProbeStatsData& stats)
+{
+    view.onProbeStats(stats);
+}

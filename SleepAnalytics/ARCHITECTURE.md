@@ -139,9 +139,45 @@ GUI → Service:
 ## 10. Open questions (verify early, in order)
 
 1. Does an `APP_AUTOSTART=On` Utility service actually stay resident
-   overnight on hardware? (Build a blink-and-log probe first.)
+   overnight on hardware? → **probe implemented, awaiting an overnight run**
 2. Battery cost of HEART_RATE @ 0.1 Hz overnight — measure before
-   committing to the staging design.
+   committing to the staging design. → **same probe answers this**
 3. Does the platform already aggregate sleep-adjacent signals we can
    consume (HEART_RATE_METRICS RHR, ACTIVITY STILL) while apps sleep?
 4. SpO2 spot-check power cost — is 30-min cadence viable at all?
+
+## 11. Residency + battery probe (current build)
+
+The current `.uapp` is the probe for questions 1–2, not a sleep tracker.
+
+**What it does** — service autostarts at boot, subscribes HEART_RATE @
+0.1 Hz + BATTERY_LEVEL @ 5 min, and appends CSV lines to `probe.csv`
+(open/seek-end/write/flush/close per line, so a crash loses ≤ 1 line):
+
+```
+B,<epoch>,<uptimeMs>          service boot
+X,<epoch>,<uptimeMs>          COMMAND_APP_STOP received
+A,<epoch>,<uptimeMs>,<battD>  alive marker, 1/min (battery deci-%)
+H,<epoch>,<bpm>,<trust>       heart-rate sample
+```
+
+The file rotates at boot beyond 200 KB. On GUI open the service parses
+the log and pushes a `ProbeStats` summary; the main screen shows span,
+boots, stops, alive count, HR samples, longest gap, battery first>last,
+and current service uptime.
+
+**Deploy** — install `SleepAnalytics/Output/SleepAnalytics_0.1.0.uapp`
+via the companion app, then reboot the watch (so the autostart path is
+what launches the service — not an app open). Wear it overnight.
+
+**Reading the verdict in the morning** — open the app:
+
+- `BOOTS 1 STOP 0` + `ALIVE ~480` (8 h) → service stayed resident.
+  `BOOTS 2` with the second boot at app-open time → the system killed it
+  and autostart only fires at watch boot; residency assumption broken.
+- `MAXGAP` should stay near 60 s (alive cadence); hours-long gaps mark
+  where the service (or its sensors) went silent.
+- `BATT 100>91` → 9 %/night at HR 0.1 Hz ≈ acceptable; much more and the
+  sensor plan in §4 needs re-thinking before any staging work.
+- Raw data: pull `probe.csv` over BLE FTS (`/Apps/SleepAnalytics/` area)
+  for per-sample analysis if the summary raises questions.

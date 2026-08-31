@@ -23,6 +23,7 @@ Model::Model()
     , mKernel(SDK::KernelProviderGUI::GetInstance().getKernel())
 {
     SDK::TouchGFXCommandProcessor::GetInstance().setAppLifeCycleCallback(this);
+    SDK::TouchGFXCommandProcessor::GetInstance().setCustomMessageHandler(this);
 
 #if defined(SIMULATOR)
     LOG_INFO("Application is running through simulator! \n");
@@ -104,4 +105,22 @@ void Model::onStop()
 void Model::onSuspend()
 {
     LOG_INFO("called\n");
+}
+
+// ICustomMessageHandler
+bool Model::customMessageHandler(SDK::MessageBase* msg)
+{
+    switch (msg->getType()) {
+        case CustomMessage::PROBE_STATS: {
+            auto* m = static_cast<CustomMessage::ProbeStats*>(msg);
+            if (modelListener) {
+                modelListener->onProbeStats(m->d);
+            }
+        } break;
+
+        default:
+            break;
+    }
+
+    return true;
 }

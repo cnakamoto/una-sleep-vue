@@ -18,6 +18,9 @@ public:
 
     virtual void onIdleTimeout() {}
 
+    /** Overnight probe summary, pushed by the service when the GUI starts. */
+    virtual void onProbeStats(const CustomMessage::ProbeStatsData&) {}
+
 protected:
     Model* model;
 
