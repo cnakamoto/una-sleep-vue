@@ -211,13 +211,29 @@ Findings:
 4. Probe v0.1.1 adds `G,<epoch>,<uptimeMs>` (GUI started) so a boot-time
    start (B alone) is distinguishable from a manual app open (B then G).
 
-### Probe run 2 (pending)
+### Probe run 2 (2026-09-01, ~20 min bench test): AUTOSTART WORKS
 
-v0.1.1 installed, log reset. Power cycle → wear overnight. Verdicts:
+User power-cycled and plugged back in after ~20 min. Verdicts from the
+log (1,247 lines):
 
-- B at uptime ~0, no G → autoRun works from second boot; residency +
-  battery data will be in the log. Runtime model confirmed.
-- Still no B at uptime ~0 → autoRun is gated for sideloaded apps; pivot
-  to the manual-arm runtime model (user opens app at bedtime, service
-  stays running afterwards — which run 1 already suggests works, since
-  the app *can* run and write files once launched).
+1. **Residency: CONFIRMED.** `B` at uptime **7.1 s** with no `G` — pure
+   boot-time autoRun, second-boot hypothesis confirmed (a sideloaded app
+   becomes autorun-eligible once registered in `app_list.json` at a
+   prior boot). The runtime model in §2 stands.
+2. **20.4 min of continuous HR logging** (epochs 1788261064→1788262289)
+   with per-line open/flush/close file I/O — no crashes, no gaps, alive
+   markers steady at ~60 s cadence.
+3. **HR arrives at ~1 Hz, not the requested 0.1 Hz.** The 10 s period
+   wasn't honored — almost certainly because the platform's own health
+   tracking already runs the HR sensor at 1 Hz and the sensor layer fans
+   out at the fastest subscribed rate. Silver lining: the marginal
+   sensor cost of our subscription may be ~zero; our real costs are
+   wake-ups + flash writes. Revisit the §4 duty-cycle table with this.
+4. **USB plug-in sends COMMAND_APP_STOP to app services** (mass-storage
+   flush/unmount): X at uptime 1233.9 s, then a B/A/H/H/X flush cycle
+   19 s later — the same 3-second signature as run 1, which settles how
+   run 1's lone run happened (USB plug-in, not an app open).
+5. **Power-off also sends COMMAND_APP_STOP** (X at uptime 17 s of boot
+   1 — the user power-cycled promptly).
+6. Battery unreadable this test: constant 100.0 % throughout.
+   → Overnight run still needed for the §10.2 drain verdict.
