@@ -16,6 +16,7 @@
 // to probe.csv on flash:
 //
 //   B,<epoch>,<uptimeMs>          service boot
+//   G,<epoch>,<uptimeMs>          GUI started (user opened the app)
 //   X,<epoch>,<uptimeMs>          COMMAND_APP_STOP received
 //   A,<epoch>,<uptimeMs>,<battD>  alive marker (1/min, battery deci-%)
 //   H,<epoch>,<bpmD>,<trustD>     heart-rate sample (decis, integers only)

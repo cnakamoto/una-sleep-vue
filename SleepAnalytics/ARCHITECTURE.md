@@ -181,3 +181,43 @@ what launches the service — not an app open). Wear it overnight.
   sensor plan in §4 needs re-thinking before any staging work.
 - Raw data: pull `probe.csv` over BLE FTS (`/Apps/SleepAnalytics/` area)
   for per-sample analysis if the summary raises questions.
+
+### Probe run 1 (2026-08-31 → 09-01): autostart did NOT fire
+
+Watch power-cycled 12:55 EDT after install, worn overnight, plugged in
+06:53 EDT. Entire log:
+
+```
+B,1788260004,64669638   <- 06:53 EDT, watch already up 17.96 h
+A,1788260004,64669649,1000
+H,1788260005,0,0        <- bpm 0: sensor ramp-up, not a real sample
+H,1788260006,0,0
+X,1788260007,64672503   <- stopped 3 s after starting
+```
+
+Findings:
+
+1. **The service's first boot came 17.96 h after watch boot** — the
+   boot-time autoRun path did not start it, despite flags 0x29 in the
+   .uapp, byte-identical to the stock Alarm app (which does autorun on
+   this unit; `alarms.json` exists). Watch `SystemLog/LastLog.txt` shows
+   the mechanism (`App.Manager::autoRun: Start all autorun applications`)
+   from an older boot.
+2. The 3-second run coincides with the user opening the app / plugging
+   in USB that morning; ended by COMMAND_APP_STOP.
+3. Hypothesis now under test: **autoRun only applies to apps that were
+   registered (app_list.json scan) at a previous boot** — i.e. a
+   sideloaded app becomes autorun-eligible from its *second* boot.
+4. Probe v0.1.1 adds `G,<epoch>,<uptimeMs>` (GUI started) so a boot-time
+   start (B alone) is distinguishable from a manual app open (B then G).
+
+### Probe run 2 (pending)
+
+v0.1.1 installed, log reset. Power cycle → wear overnight. Verdicts:
+
+- B at uptime ~0, no G → autoRun works from second boot; residency +
+  battery data will be in the log. Runtime model confirmed.
+- Still no B at uptime ~0 → autoRun is gated for sideloaded apps; pivot
+  to the manual-arm runtime model (user opens app at bedtime, service
+  stays running afterwards — which run 1 already suggests works, since
+  the app *can* run and write files once launched).

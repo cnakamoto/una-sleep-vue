@@ -80,10 +80,17 @@ void Service::run()
                     return;
                 }
 
-                case SDK::MessageType::COMMAND_APP_NOTIF_GUI_RUN:
+                case SDK::MessageType::COMMAND_APP_NOTIF_GUI_RUN: {
                     LOG_INFO("GUI is now running\n");
+                    // G lines discriminate "started at boot" (B, no G) from
+                    // "started because the user opened the app" (B then G).
+                    char line[48];
+                    snprintf(line, sizeof(line), "G,%lu,%lu\n",
+                             static_cast<unsigned long>(time(nullptr)),
+                             static_cast<unsigned long>(mKernel.sys.getTimeMs()));
+                    appendLine(line);
                     onStartGUI();
-                    break;
+                    } break;
 
                 case SDK::MessageType::COMMAND_APP_NOTIF_GUI_STOP:
                     LOG_INFO("GUI has stopped\n");
