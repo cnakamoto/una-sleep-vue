@@ -264,5 +264,8 @@ Worn continuously from Tue 07:40 EDT to Wed 08:45 EDT plug-in.
    now the default plan.
 
 **Probe phase complete.** Questions 1–2 answered; the probe app has
-earned its retirement. Next: implement the real tracker (IDLE →
-TRACKING → SUMMARY) per §3–§8.
+earned its retirement. The real tracker (IDLE → TRACKING → close-out,
+per §3–§8) is implemented in v0.2.0: manual R1 start/stop, 30 s epoch
+staging per §5, §6 binary storage with crash recovery, and the summary
+GUI. Field-tuning night: compare its stage split against the probe's
+raw HR curve from run 3.

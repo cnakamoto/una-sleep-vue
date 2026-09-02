@@ -2,11 +2,14 @@
 #include "SDK/Messages/MessageGuard.hpp"
 
 #include "SDK/SensorLayer/DataParsers/SensorDataParserHeartRate.hpp"
+#include "SDK/SensorLayer/DataParsers/SensorDataParserMotionDetect.hpp"
+#include "SDK/SensorLayer/DataParsers/SensorDataParserTouch.hpp"
 #include "SDK/SensorLayer/DataParsers/SensorDataParserBatteryLevel.hpp"
 
 #include "Service.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 
@@ -17,37 +20,58 @@
 namespace
 {
 
-// Poll interval for the message loop; the periodic alive check runs once
-// per pass, so this also bounds marker jitter.
+// Poll interval for the message loop; epoch boundaries and the periodic
+// GUI state push are driven off this cadence.
 constexpr uint32_t kPollMs = 1000;
 
-// Probe rates: HR at the 0.1 Hz the architecture sketch assumes for
-// overnight tracking; battery only to measure drain.
-constexpr float kHrPeriodSec   = 10.0f;
-constexpr float kBattPeriodSec = 300.0f;
-
-constexpr uint32_t kAliveEveryMs = 60000;
-
-constexpr const char* kProbeFile = "probe.csv";
-
-// One night is ~80 KB; rotate at boot if a previous run left much more.
-constexpr size_t kRotateBytes = 200 * 1024;
+// Push SESSION_STATE to an open GUI every N polls while TRACKING.
+constexpr uint32_t kStatePushEveryPolls = 5;
 
 } // namespace
 
 Service::Service(SDK::Kernel& kernel)
     : mKernel(SDK::KernelProviderService::GetInstance().getKernel())
     , mGUIStarted(false)
-    , mSensorHr(SDK::Sensor::Type::HEART_RATE, kHrPeriodSec)
-    , mSensorBattery(SDK::Sensor::Type::BATTERY_LEVEL, kBattPeriodSec)
-    , mBattD(CustomMessage::kBatteryUnknown)
-    , mLastAliveMs(0)
+    , mState(CustomMessage::TrackingState::IDLE)
+    , mSensorHr(SDK::Sensor::Type::HEART_RATE, 10.0f)
+    , mSensorMotion(SDK::Sensor::Type::MOTION_DETECT, 0.0f)
+    , mSensorTouch(SDK::Sensor::Type::TOUCH_DETECT, 0.0f)
+    , mSensorBattery(SDK::Sensor::Type::BATTERY_LEVEL, 300.0f)
+    , mBedEpoch(0)
+    , mSessionStartMs(0)
+    , mNextEpochCloseMs(0)
+    , mEpochMovement(0)
+    , mEpochHrSum(0)
+    , mEpochHrCount(0)
+    , mStillEpochs(0)
+    , mBaselineCount(0)
+    , mBaselineBpm(0)
+    , mEpochBufCount(0)
+    , mFlushedEpochs(0)
+    , mAwakeEpochs(0)
+    , mLightEpochs(0)
+    , mDeepEpochs(0)
+    , mHrSum(0)
+    , mHrValidCount(0)
+    , mHrMin(0)
+    , mHrMax(0)
+    , mLiveHr(0)
+    , mUnwornSinceMs(0)
+    , mBatteryPct(0xFF)
+    , mCloseFlags(0)
+    , mHasSummary(false)
 {}
 
 Service::~Service()
 {
     if (mSensorHr.isConnected()) {
         mSensorHr.disconnect();
+    }
+    if (mSensorMotion.isConnected()) {
+        mSensorMotion.disconnect();
+    }
+    if (mSensorTouch.isConnected()) {
+        mSensorTouch.disconnect();
     }
     if (mSensorBattery.isConnected()) {
         mSensorBattery.disconnect();
@@ -58,39 +82,31 @@ void Service::run()
 {
     LOG_INFO("thread started\n");
 
-    writeBootMarker();
+    recoverInterruptedSession();
+    mHasSummary = mKernel.fs.exist(Sleep::kLastFile);
 
-    // The whole point of the probe: collect with the GUI never started.
-    mSensorHr.connect();
-    mSensorBattery.connect();
+    uint32_t statePushCountdown = 0;
 
     while (true) {
         SDK::MessageBase *msg;
         if (mKernel.comm.getMessage(msg, kPollMs)) {
             switch (msg->getType()) {
-                case SDK::MessageType::COMMAND_APP_STOP: {
+                case SDK::MessageType::COMMAND_APP_STOP:
                     LOG_INFO("Force exit from the application\n");
-                    char line[48];
-                    snprintf(line, sizeof(line), "X,%lu,%lu\n",
-                             static_cast<unsigned long>(time(nullptr)),
-                             static_cast<unsigned long>(mKernel.sys.getTimeMs()));
-                    appendLine(line);
+                    if (mState == CustomMessage::TrackingState::TRACKING) {
+                        // Power-off / USB mass-storage: bank the night.
+                        flushEpochs();
+                        mCloseFlags |= Sleep::Flags::kInterrupted;
+                        finalizeSessionFile();
+                    }
                     // We must release message because this is the last event.
                     mKernel.comm.releaseMessage(msg);
                     return;
-                }
 
-                case SDK::MessageType::COMMAND_APP_NOTIF_GUI_RUN: {
+                case SDK::MessageType::COMMAND_APP_NOTIF_GUI_RUN:
                     LOG_INFO("GUI is now running\n");
-                    // G lines discriminate "started at boot" (B, no G) from
-                    // "started because the user opened the app" (B then G).
-                    char line[48];
-                    snprintf(line, sizeof(line), "G,%lu,%lu\n",
-                             static_cast<unsigned long>(time(nullptr)),
-                             static_cast<unsigned long>(mKernel.sys.getTimeMs()));
-                    appendLine(line);
                     onStartGUI();
-                    } break;
+                    break;
 
                 case SDK::MessageType::COMMAND_APP_NOTIF_GUI_STOP:
                     LOG_INFO("GUI has stopped\n");
@@ -103,6 +119,21 @@ void Service::run()
                     handleSensorData(event->handle, batch);
                     } break;
 
+                case CustomMessage::TRACKING_TOGGLE:
+                    if (mState == CustomMessage::TrackingState::TRACKING) {
+                        mCloseFlags = 0;
+                        stopTracking();
+                    } else {
+                        startTracking();
+                    }
+                    sendSessionState();
+                    break;
+
+                case CustomMessage::SUMMARY_REQUEST:
+                    sendSessionState();
+                    sendSummary();
+                    break;
+
                 default:
                     break;
             }
@@ -110,34 +141,75 @@ void Service::run()
             mKernel.comm.releaseMessage(msg);
         }
 
-        writeAliveMarkerIfDue();
+        if (mState == CustomMessage::TrackingState::TRACKING) {
+            closeEpochsIfDue();
+
+            if (mGUIStarted && ++statePushCountdown >= kStatePushEveryPolls) {
+                statePushCountdown = 0;
+                sendSessionState();
+            }
+        }
     }
 }
 
 void Service::onStartGUI()
 {
     mGUIStarted = true;
-    SDK::send_msg<CustomMessage::ProbeStats>(mKernel, analyzeLog());
+    sendSessionState();
+    sendSummary();
 }
 
 void Service::onStopGUI()
 {
     mGUIStarted = false;
-    // Sensors stay connected: the probe must keep logging overnight.
+    // Tracking continues with the GUI closed — that's the point.
 }
+
+// ---------------------------------------------------------------- sensors
 
 void Service::handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data)
 {
+    if (mState != CustomMessage::TrackingState::TRACKING) {
+        return;
+    }
+
     if (mSensorHr.matchesDriver(handle)) {
         for (uint16_t i = 0; i < data.size(); ++i) {
             SDK::SensorDataParser::HeartRate p(data[i]);
             if (p.isDataValid()) {
-                char line[48];
-                snprintf(line, sizeof(line), "H,%lu,%u,%d\n",
-                         static_cast<unsigned long>(time(nullptr)),
-                         static_cast<unsigned>(p.getBpm() + 0.5f),
-                         static_cast<int>(p.getTrustLevel() + 0.5f));
-                appendLine(line);
+                uint8_t bpm = static_cast<uint8_t>(p.getBpm() + 0.5f);
+                if (bpm == 0) {
+                    continue; // sensor ramp-up, not a real sample
+                }
+                mLiveHr = bpm;
+                mEpochHrSum += bpm;
+                mEpochHrCount++;
+            }
+        }
+        return;
+    }
+
+    if (mSensorMotion.matchesDriver(handle)) {
+        for (uint16_t i = 0; i < data.size(); ++i) {
+            SDK::SensorDataParser::MotionDetect p(data[i]);
+            if (p.isDataValid()) {
+                auto id = p.getID();
+                if (id == SDK::SensorDataParser::MotionDetect::Motion::MOTION
+                        || id == SDK::SensorDataParser::MotionDetect::Motion::SIG_MOTION) {
+                    mEpochMovement++;
+                }
+            }
+        }
+        return;
+    }
+
+    if (mSensorTouch.matchesDriver(handle)) {
+        SDK::SensorDataParser::Touch p(data[0]);
+        if (p.isDataValid()) {
+            if (p.isTouched()) {
+                mUnwornSinceMs = 0;
+            } else if (mUnwornSinceMs == 0) {
+                mUnwornSinceMs = mKernel.sys.getTimeMs();
             }
         }
         return;
@@ -146,150 +218,395 @@ void Service::handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data)
     if (mSensorBattery.matchesDriver(handle)) {
         SDK::SensorDataParser::BatteryLevel p(data[0]);
         if (p.isDataValid()) {
-            mBattD = static_cast<int16_t>(p.getCharge() * 10.0f + 0.5f);
+            mBatteryPct = static_cast<uint8_t>(p.getCharge() + 0.5f);
         }
     }
 }
 
-void Service::appendLine(const char* line)
+// ------------------------------------------------------------- state flow
+
+void Service::startTracking()
 {
-    auto file = mKernel.fs.file(kProbeFile);
-    if (!file) {
-        LOG_INFO("probe: fs.file failed\n");
-        return;
+    LOG_INFO("start tracking\n");
+
+    mState = CustomMessage::TrackingState::TRACKING;
+    mBedEpoch = time(nullptr);
+    mSessionStartMs = mKernel.sys.getTimeMs();
+    mNextEpochCloseMs = mSessionStartMs + Sleep::Config::kEpochSec * 1000;
+
+    mEpochMovement = 0;
+    mEpochHrSum = 0;
+    mEpochHrCount = 0;
+    mStillEpochs = 0;
+    mBaselineCount = 0;
+    mBaselineBpm = 0;
+    mEpochBufCount = 0;
+    mFlushedEpochs = 0;
+    mAwakeEpochs = mLightEpochs = mDeepEpochs = 0;
+    mHrSum = 0;
+    mHrValidCount = 0;
+    mHrMin = 0;
+    mHrMax = 0;
+    mLiveHr = 0;
+    mUnwornSinceMs = 0;
+    mCloseFlags = 0;
+
+    // Placeholder header: real bedEpoch now, stats rewritten at close.
+    // This is what makes a crashed/interrupted night recoverable.
+    Sleep::SessionHeader hdr{};
+    memcpy(hdr.magic, "SLP1", 4);
+    hdr.dateKey  = localDateKey(mBedEpoch);
+    hdr.bedEpoch = static_cast<uint32_t>(mBedEpoch);
+
+    auto file = mKernel.fs.file(Sleep::kCurrentFile);
+    if (file && file->open(true, true)) {
+        size_t bw = 0;
+        file->write(reinterpret_cast<const char*>(&hdr), sizeof(hdr), bw);
+        file->flush();
+        file->close();
+    } else {
+        LOG_INFO("failed to create %s\n", Sleep::kCurrentFile);
     }
-    if (!file->open(true, false)) {
-        LOG_INFO("probe: open failed\n");
-        return;
-    }
-    file->seek(file->size());
-    size_t written = 0;
-    file->write(line, strlen(line), written);
-    file->flush();
-    file->close();
+
+    mSensorHr.connect();
+    mSensorMotion.connect();
+    mSensorTouch.connect();
+    mSensorBattery.connect();
 }
 
-void Service::writeBootMarker()
+void Service::stopTracking()
 {
-    // Start a fresh file when a previous run (or many) left it bloated;
-    // the rotation itself is information, so note it in the new file.
-    bool rotated = false;
-    {
-        auto file = mKernel.fs.file(kProbeFile);
-        if (file && file->exist() && file->size() > kRotateBytes) {
-            mKernel.fs.remove(kProbeFile);
-            rotated = true;
-        }
-    }
+    LOG_INFO("stop tracking (flags 0x%02x)\n", mCloseFlags);
 
-    char line[64];
-    snprintf(line, sizeof(line), "B,%lu,%lu%s\n",
-             static_cast<unsigned long>(time(nullptr)),
-             static_cast<unsigned long>(mKernel.sys.getTimeMs()),
-             rotated ? ",rotated" : "");
-    appendLine(line);
+    mSensorHr.disconnect();
+    mSensorMotion.disconnect();
+    mSensorTouch.disconnect();
+    mSensorBattery.disconnect();
+
+    flushEpochs();
+    finalizeSessionFile();
+
+    mState = CustomMessage::TrackingState::IDLE;
 }
 
-void Service::writeAliveMarkerIfDue()
+// ------------------------------------------------------- epoch processing
+
+void Service::closeEpochsIfDue()
 {
     uint32_t now = mKernel.sys.getTimeMs();
-    if (now - mLastAliveMs < kAliveEveryMs) {
+
+    // Safety aborts
+    if (mUnwornSinceMs != 0 && now - mUnwornSinceMs >= Sleep::Config::kUnwornAbortSec * 1000) {
+        LOG_INFO("aborting: unworn\n");
+        mCloseFlags |= Sleep::Flags::kAbortedUnworn;
+        stopTracking();
         return;
     }
-    mLastAliveMs = now;
+    if (mBatteryPct > 0 && mBatteryPct <= Sleep::Config::kBatteryAbortPct) {
+        LOG_INFO("aborting: battery %u%%\n", mBatteryPct);
+        mCloseFlags |= Sleep::Flags::kAbortedBattery;
+        stopTracking();
+        return;
+    }
 
-    char line[48];
-    snprintf(line, sizeof(line), "A,%lu,%lu,%d\n",
-             static_cast<unsigned long>(time(nullptr)),
-             static_cast<unsigned long>(now),
-             static_cast<int>(mBattD));
-    appendLine(line);
+    while (mState == CustomMessage::TrackingState::TRACKING
+            && static_cast<int32_t>(now - mNextEpochCloseMs) >= 0) {
+        closeCurrentEpoch();
+        mNextEpochCloseMs += Sleep::Config::kEpochSec * 1000;
+    }
 }
 
-CustomMessage::ProbeStatsData Service::analyzeLog() const
+void Service::closeCurrentEpoch()
 {
-    CustomMessage::ProbeStatsData s{};
-    s.battFirstD = CustomMessage::kBatteryUnknown;
-    s.battLastD  = CustomMessage::kBatteryUnknown;
-
-    auto file = mKernel.fs.file(kProbeFile);
-    if (!file || !file->open(false)) {
-        return s;
+    uint8_t hrMean = 0;
+    if (mEpochHrCount > 0) {
+        hrMean = static_cast<uint8_t>(mEpochHrSum / mEpochHrCount);
     }
 
-    uint32_t prevEpoch = 0;
-    bool     seenAny   = false;
+    Sleep::Stage stage = classifyEpoch(mEpochMovement, hrMean);
 
-    char    chunk[256];
-    char    line[72];
-    size_t  lineLen = 0;
-    size_t  bytesRead = 0;
+    // Baseline: median of still-epoch HR means, insertion-sorted.
+    if (mEpochMovement == 0 && hrMean > 0
+            && mBaselineCount < Sleep::Config::kBaselineMaxSamples) {
+        uint16_t i = mBaselineCount;
+        while (i > 0 && mStillHr[i - 1] > hrMean) {
+            mStillHr[i] = mStillHr[i - 1];
+            --i;
+        }
+        mStillHr[i] = hrMean;
+        ++mBaselineCount;
+        if (mBaselineCount >= Sleep::Config::kBaselineMinEpochs) {
+            mBaselineBpm = mStillHr[mBaselineCount / 2];
+        }
+    }
 
-    auto handleLine = [&](const char* l) {
-        // Every line type carries epoch in field 1 — use it for span/gap.
-        char type = l[0];
-        unsigned long epoch = 0;
-        if (sscanf(l + 1, ",%lu", &epoch) != 1) {
+    if (mEpochMovement == 0) {
+        ++mStillEpochs;
+    } else {
+        mStillEpochs = 0;
+    }
+
+    switch (stage) {
+        case Sleep::Stage::AWAKE: ++mAwakeEpochs; break;
+        case Sleep::Stage::LIGHT: ++mLightEpochs; break;
+        case Sleep::Stage::DEEP:  ++mDeepEpochs;  break;
+    }
+    if (hrMean > 0) {
+        mHrSum += hrMean;
+        ++mHrValidCount;
+        if (mHrMin == 0 || hrMean < mHrMin) mHrMin = hrMean;
+        if (hrMean > mHrMax) mHrMax = hrMean;
+    }
+
+    if (mEpochBufCount < Sleep::Config::kFlushEveryEpochs) {
+        mEpochBuf[mEpochBufCount].bits =
+            Sleep::EpochRecord::pack(stage, mEpochMovement, hrMean, 0);
+        ++mEpochBufCount;
+    }
+    if (mEpochBufCount >= Sleep::Config::kFlushEveryEpochs) {
+        flushEpochs();
+    }
+
+    mEpochMovement = 0;
+    mEpochHrSum = 0;
+    mEpochHrCount = 0;
+}
+
+Sleep::Stage Service::classifyEpoch(uint8_t movement, uint8_t hrMean) const
+{
+    if (movement >= Sleep::Config::kAwakeMovementCount) {
+        return Sleep::Stage::AWAKE;
+    }
+    if (mBaselineBpm > 0 && hrMean > 0
+            && mStillEpochs >= Sleep::Config::kDeepMinStillEpochs
+            && static_cast<uint16_t>(hrMean) * 100
+               <= static_cast<uint16_t>(mBaselineBpm) * (100 - Sleep::Config::kDeepHrDropPct)) {
+        return Sleep::Stage::DEEP;
+    }
+    return Sleep::Stage::LIGHT;
+}
+
+// ---------------------------------------------------------------- storage
+
+void Service::flushEpochs()
+{
+    if (mEpochBufCount == 0) {
+        return;
+    }
+
+    auto file = mKernel.fs.file(Sleep::kCurrentFile);
+    if (!file || !file->open(true, false)) {
+        LOG_INFO("flush: open failed\n");
+        return;
+    }
+    file->seek(sizeof(Sleep::SessionHeader)
+               + mFlushedEpochs * sizeof(Sleep::EpochRecord));
+    size_t bw = 0;
+    file->write(reinterpret_cast<const char*>(mEpochBuf),
+                mEpochBufCount * sizeof(Sleep::EpochRecord), bw);
+    file->flush();
+    file->close();
+
+    mFlushedEpochs += mEpochBufCount;
+    mEpochBufCount = 0;
+}
+
+void Service::finalizeSessionFile()
+{
+    uint16_t epochCount = mFlushedEpochs;
+
+    // Recompute header totals from the records on flash — this same path
+    // serves a normal close and boot recovery after interruption.
+    Sleep::SessionHeader hdr{};
+    {
+        auto file = mKernel.fs.file(Sleep::kCurrentFile);
+        if (!file || !file->open(false)) {
+            LOG_INFO("finalize: open failed\n");
             return;
         }
+        size_t br = 0;
+        file->read(reinterpret_cast<char*>(&hdr), sizeof(hdr), br);
 
-        if (!seenAny) {
-            s.firstEpoch = static_cast<uint32_t>(epoch);
-            seenAny = true;
-        } else if (epoch > prevEpoch) {
-            uint32_t gap = static_cast<uint32_t>(epoch) - prevEpoch;
-            if (gap > s.maxGapSec) {
-                s.maxGapSec = gap;
+        uint16_t awake = 0, light = 0, deep = 0;
+        uint32_t hrSum = 0, hrN = 0;
+        uint8_t hrMin = 0, hrMax = 0;
+
+        Sleep::EpochRecord rec{};
+        for (uint16_t i = 0; i < epochCount; ++i) {
+            size_t r = 0;
+            if (!file->read(reinterpret_cast<char*>(&rec), sizeof(rec), r) || r != sizeof(rec)) {
+                epochCount = i; // truncated file: close out what we have
+                break;
+            }
+            switch (rec.stage()) {
+                case Sleep::Stage::AWAKE: ++awake; break;
+                case Sleep::Stage::LIGHT: ++light; break;
+                case Sleep::Stage::DEEP:  ++deep;  break;
+            }
+            uint8_t bpm = rec.hrBpm();
+            if (bpm > 0) {
+                hrSum += bpm;
+                ++hrN;
+                if (hrMin == 0 || bpm < hrMin) hrMin = bpm;
+                if (bpm > hrMax) hrMax = bpm;
             }
         }
-        prevEpoch = static_cast<uint32_t>(epoch);
-        s.lastEpoch = prevEpoch;
+        file->close();
 
-        switch (type) {
-            case 'B': s.boots++; break;
-            case 'X': s.stops++; break;
-            case 'H': s.hrSamples++; break;
-            case 'A': {
-                s.aliveCount++;
-                int battD = 0;
-                unsigned long skip1 = 0, skip2 = 0;
-                // A,<epoch>,<uptimeMs>,<battD> — battery is field 3.
-                if (sscanf(l, "A,%lu,%lu,%d", &skip1, &skip2, &battD) == 3 && battD >= 0) {
-                    if (s.battFirstD < 0) {
-                        s.battFirstD = static_cast<int16_t>(battD);
-                    }
-                    s.battLastD = static_cast<int16_t>(battD);
-                }
-            } break;
-            default: break;
-        }
-    };
-
-    while (true) {
-        if (!file->read(chunk, sizeof(chunk), bytesRead) || bytesRead == 0) {
-            break;
-        }
-        for (size_t i = 0; i < bytesRead; ++i) {
-            char c = chunk[i];
-            if (c == '\n') {
-                line[lineLen] = '\0';
-                if (lineLen > 1) {
-                    handleLine(line);
-                }
-                lineLen = 0;
-            } else if (lineLen < sizeof(line) - 1) {
-                line[lineLen++] = c;
-            }
-        }
-    }
-    if (lineLen > 1) {
-        line[lineLen] = '\0';
-        handleLine(line);
+        hdr.epochCount = epochCount;
+        hdr.wakeEpoch  = hdr.bedEpoch + epochCount * Sleep::Config::kEpochSec;
+        hdr.totalMin   = epochCount * Sleep::Config::kEpochSec / 60;
+        hdr.awakeMin   = awake * Sleep::Config::kEpochSec / 60;
+        hdr.lightMin   = light * Sleep::Config::kEpochSec / 60;
+        hdr.deepMin    = deep * Sleep::Config::kEpochSec / 60;
+        hdr.hrMin = hrMin;
+        hdr.hrAvg = hrN > 0 ? static_cast<uint8_t>(hrSum / hrN) : 0;
+        hdr.hrMax = hrMax;
+        hdr.flags |= mCloseFlags;
     }
 
+    if (epochCount == 0) {
+        // Nothing recorded — junk file, no night to keep.
+        mKernel.fs.remove(Sleep::kCurrentFile);
+        return;
+    }
+
+    // Rewrite the finalized header at offset 0.
+    {
+        auto file = mKernel.fs.file(Sleep::kCurrentFile);
+        if (file && file->open(true, false)) {
+            file->seek(0);
+            size_t bw = 0;
+            file->write(reinterpret_cast<const char*>(&hdr), sizeof(hdr), bw);
+            file->flush();
+            file->close();
+        }
+    }
+
+    // Archive the night and refresh the "last night" copy the GUI reads.
+    char archive[24];
+    snprintf(archive, sizeof(archive), "slp_%08lu.bin",
+             static_cast<unsigned long>(hdr.dateKey));
+    mKernel.fs.remove(archive); // keep the newest attempt at this date
+    mKernel.fs.copy(Sleep::kCurrentFile, archive);
+    mKernel.fs.copy(Sleep::kCurrentFile, Sleep::kLastFile);
+    mKernel.fs.remove(Sleep::kCurrentFile);
+
+    mHasSummary = true;
+    LOG_INFO("session closed: %u epochs, deep %umin\n", epochCount, hdr.deepMin);
+
+    sendSummary();
+}
+
+void Service::recoverInterruptedSession()
+{
+    if (!mKernel.fs.exist(Sleep::kCurrentFile)) {
+        return;
+    }
+    LOG_INFO("recovering interrupted session\n");
+
+    size_t size = 0;
+    {
+        auto file = mKernel.fs.file(Sleep::kCurrentFile);
+        if (file && file->open(false)) {
+            size = file->size();
+            file->close();
+        }
+    }
+    if (size < sizeof(Sleep::SessionHeader)) {
+        mKernel.fs.remove(Sleep::kCurrentFile);
+        return;
+    }
+
+    mFlushedEpochs = (size - sizeof(Sleep::SessionHeader)) / sizeof(Sleep::EpochRecord);
+    mCloseFlags = Sleep::Flags::kInterrupted;
+    finalizeSessionFile();
+    mFlushedEpochs = 0;
+    mCloseFlags = 0;
+}
+
+// --------------------------------------------------------------- GUI push
+
+void Service::sendSessionState()
+{
+    if (!mGUIStarted) {
+        return;
+    }
+    CustomMessage::SessionStateData d{};
+    d.state = mState;
+    d.aborted = mCloseFlags;
+    d.liveHr = mLiveHr;
+    d.hasSummary = mHasSummary ? 1 : 0;
+    if (mState == CustomMessage::TrackingState::TRACKING) {
+        d.elapsedMin = static_cast<uint16_t>(
+            (mKernel.sys.getTimeMs() - mSessionStartMs) / 60000);
+    }
+    SDK::send_msg<CustomMessage::SessionState>(mKernel, d);
+}
+
+void Service::sendSummary()
+{
+    if (!mGUIStarted) {
+        return;
+    }
+    Sleep::SessionHeader hdr;
+    if (!mHasSummary || !loadLastHeader(hdr)) {
+        return;
+    }
+    CustomMessage::SleepSummaryData d{};
+    d.dateKey  = hdr.dateKey;
+    d.bedMin   = localMinutes(hdr.bedEpoch);
+    d.wakeMin  = localMinutes(hdr.wakeEpoch);
+    d.totalMin = hdr.totalMin;
+    d.awakeMin = hdr.awakeMin;
+    d.lightMin = hdr.lightMin;
+    d.deepMin  = hdr.deepMin;
+    d.hrMin = hdr.hrMin;
+    d.hrAvg = hdr.hrAvg;
+    d.hrMax = hdr.hrMax;
+    d.flags = hdr.flags;
+    SDK::send_msg<CustomMessage::SleepSummary>(mKernel, d);
+}
+
+bool Service::loadLastHeader(Sleep::SessionHeader& hdr)
+{
+    auto file = mKernel.fs.file(Sleep::kLastFile);
+    if (!file || !file->open(false)) {
+        return false;
+    }
+    size_t br = 0;
+    bool ok = file->read(reinterpret_cast<char*>(&hdr), sizeof(hdr), br)
+              && br == sizeof(hdr)
+              && memcmp(hdr.magic, "SLP1", 4) == 0;
     file->close();
-    s.upMin = mKernel.sys.getTimeMs() / 60000;
-    return s;
+    return ok;
+}
+
+// ------------------------------------------------------------------- time
+
+void Service::localTime(std::tm& out)
+{
+    std::time_t utc = time(nullptr);
+#if defined(_WIN32) || defined(_WIN64)
+    localtime_s(&out, &utc);
+#else
+    localtime_r(&utc, &out);
+#endif
+}
+
+uint16_t Service::localMinutes(std::time_t t)
+{
+    std::tm tm {};
+    localtime_r(&t, &tm);
+    return static_cast<uint16_t>(tm.tm_hour * 60 + tm.tm_min);
+}
+
+uint32_t Service::localDateKey(std::time_t t)
+{
+    std::tm tm {};
+    localtime_r(&t, &tm);
+    return static_cast<uint32_t>((tm.tm_year + 1900) * 10000
+                                 + (tm.tm_mon + 1) * 100 + tm.tm_mday);
 }
 
 uint32_t Service::ParseVersion(const char* str)

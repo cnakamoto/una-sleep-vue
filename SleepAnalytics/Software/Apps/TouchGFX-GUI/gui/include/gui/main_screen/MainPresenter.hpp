@@ -31,8 +31,13 @@ public:
         model->exitApp();
     }
 
-    /** Forwards the probe summary from the model to the view. */
-    void onProbeStats(const CustomMessage::ProbeStatsData& stats) override;
+    /** R1 pressed: start/stop the night session via the service. */
+    void trackingToggle() {
+        model->trackingToggle();
+    }
+
+    void onSessionState(const CustomMessage::SessionStateData& state) override;
+    void onSleepSummary(const CustomMessage::SleepSummaryData& summary) override;
 
 private:
     MainPresenter();

@@ -16,20 +16,30 @@ public:
     virtual void setupScreen();
     virtual void tearDownScreen();
 
-    /** Renders the overnight probe summary into the main text area. */
-    void onProbeStats(const CustomMessage::ProbeStatsData& stats);
+    /** Tracking state arrived (state change or periodic refresh). */
+    void onSessionState(const CustomMessage::SessionStateData& state);
+
+    /** Last completed night's summary arrived. */
+    void onSleepSummary(const CustomMessage::SleepSummaryData& summary);
 
 protected:
     virtual void handleKeyEvent(uint8_t key) override;
 
 private:
-    // Probe readout: replaces the Designer's single-use "Hello World" text
+    // Main readout: replaces the Designer's single-use "Hello World" text
     // (textArea1 is removed in setupScreen — no Designer round-trip needed).
     // This TouchGFX port stores a pointer to the wildcard, not a copy —
-    // probeTextBuffer must outlive the widget (it's a member, so it does).
-    static constexpr uint16_t kProbeTextBufferSize = 192;
-    touchgfx::TextAreaWithOneWildcard probeText;
-    touchgfx::Unicode::UnicodeChar probeTextBuffer[kProbeTextBufferSize];
+    // the buffer must outlive the widget (it's a member, so it does).
+    static constexpr uint16_t kTextBufferSize = 192;
+    touchgfx::TextAreaWithOneWildcard mainText;
+    touchgfx::Unicode::UnicodeChar textBuffer[kTextBufferSize];
+
+    CustomMessage::SessionStateData mState { };
+    CustomMessage::SleepSummaryData mSummary { };
+    bool mHasState = false;
+    bool mHasSummary = false;
+
+    void render();
 };
 
 #endif // MAINVIEW_HPP

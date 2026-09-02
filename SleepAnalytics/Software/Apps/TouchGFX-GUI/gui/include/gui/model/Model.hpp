@@ -38,6 +38,9 @@ public:
      */
     void exitApp();
 
+    /** R1 pressed: ask the service to start/stop the night session. */
+    void trackingToggle();
+
 protected:
     ModelListener* modelListener;           ///< Pointer to model listener
 
@@ -52,7 +55,7 @@ protected:
     virtual void onStop()    override;
     virtual void onSuspend() override;
 
-    // ICustomMessageHandler — receives PROBE_STATS from the service.
+    // ICustomMessageHandler — receives SESSION_STATE / SLEEP_SUMMARY.
     bool customMessageHandler(SDK::MessageBase* msg) override;
 };
 

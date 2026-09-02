@@ -17,7 +17,12 @@ void MainPresenter::deactivate()
 
 }
 
-void MainPresenter::onProbeStats(const CustomMessage::ProbeStatsData& stats)
+void MainPresenter::onSessionState(const CustomMessage::SessionStateData& state)
 {
-    view.onProbeStats(stats);
+    view.onSessionState(state);
+}
+
+void MainPresenter::onSleepSummary(const CustomMessage::SleepSummaryData& summary)
+{
+    view.onSleepSummary(summary);
 }

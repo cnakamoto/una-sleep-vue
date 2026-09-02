@@ -6,23 +6,23 @@
 #include "SDK/SensorLayer/SensorDataBatch.hpp"
 
 #include "Commands.hpp"
+#include "SleepTypes.hpp"
 
 #include <cstdint>
+#include <ctime>
 
-// Overnight residency + battery probe (see ARCHITECTURE.md §10).
+// Sleep tracker service (ARCHITECTURE.md §3).
 //
-// The service starts at watch boot (APP_AUTOSTART On), subscribes to
-// HEART_RATE @ 0.1 Hz and BATTERY_LEVEL, and appends one CSV line per event
-// to probe.csv on flash:
+// IDLE: no sensor subscriptions; answers GUI state/summary requests.
+// TRACKING: owns HR + motion + touch + battery subscriptions, aggregates
+// 30 s epochs, classifies them (AWAKE/LIGHT/DEEP per SleepTypes.hpp
+// thresholds), flushes to slp_cur.bin every 20 epochs. Session close
+// (manual toggle, unworn/battery abort, or COMMAND_APP_STOP mid-night)
+// finalizes the header, archives the night, and refreshes slp_last.bin.
 //
-//   B,<epoch>,<uptimeMs>          service boot
-//   G,<epoch>,<uptimeMs>          GUI started (user opened the app)
-//   X,<epoch>,<uptimeMs>          COMMAND_APP_STOP received
-//   A,<epoch>,<uptimeMs>,<battD>  alive marker (1/min, battery deci-%)
-//   H,<epoch>,<bpmD>,<trustD>     heart-rate sample (decis, integers only)
-//
-// Residency verdict: exactly one B, no X, and A/H lines spanning the whole
-// night. Battery verdict: first vs last battD of the night.
+// Crash safety: slp_cur.bin holds a placeholder header from session
+// start; a boot that finds it closes the night out from the epoch
+// records already on flash (losing nothing but the tail).
 class Service
 {
 public:
@@ -36,25 +36,76 @@ private:
     SDK::Kernel&             mKernel;
     bool                     mGUIStarted;
 
+    uint8_t                  mState;      // CustomMessage::TrackingState::*
+
     SDK::Sensor::Connection  mSensorHr;
+    SDK::Sensor::Connection  mSensorMotion;
+    SDK::Sensor::Connection  mSensorTouch;
     SDK::Sensor::Connection  mSensorBattery;
-    int16_t                  mBattD;        // Last battery deci-percent
-    uint32_t                 mLastAliveMs;  // getTimeMs() of last alive marker
+
+    // --- session in progress (TRACKING) ---
+    std::time_t              mBedEpoch;      // wall clock at start
+    uint32_t                 mSessionStartMs;
+    uint32_t                 mNextEpochCloseMs;
+
+    // Current epoch accumulators
+    uint8_t                  mEpochMovement;
+    uint16_t                 mEpochHrSum;
+    uint8_t                  mEpochHrCount;
+
+    // Staging state
+    uint16_t                 mStillEpochs;
+    uint16_t                 mBaselineCount;
+    uint8_t                  mBaselineBpm;   // 0 = not valid yet
+    uint8_t                  mStillHr[Sleep::Config::kBaselineMaxSamples];
+
+    // Buffered, not-yet-flushed epoch records
+    Sleep::EpochRecord       mEpochBuf[Sleep::Config::kFlushEveryEpochs];
+    uint16_t                 mEpochBufCount;
+    uint16_t                 mFlushedEpochs;
+
+    // Session running totals
+    uint16_t                 mAwakeEpochs;
+    uint16_t                 mLightEpochs;
+    uint16_t                 mDeepEpochs;
+    uint32_t                 mHrSum;
+    uint32_t                 mHrValidCount;
+    uint8_t                  mHrMin;
+    uint8_t                  mHrMax;
+    uint8_t                  mLiveHr;
+
+    // Abort tracking
+    uint32_t                 mUnwornSinceMs;   // 0 = worn / unknown
+    uint8_t                  mBatteryPct;      // 0xFF = unknown
+    uint8_t                  mCloseFlags;
+
+    bool                     mHasSummary;      // slp_last.bin exists
 
     void onStartGUI();
     void onStopGUI();
 
     void handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data);
 
-    // Appends one line (incl. '\n') to probe.csv: open, seek to end, write,
-    // flush, close — per line, so a crash loses at most the last line.
-    void appendLine(const char* line);
-    void writeBootMarker();
-    void writeAliveMarkerIfDue();
+    void startTracking();
+    void stopTracking();      // manual stop or abort; uses mCloseFlags
+    void closeEpochsIfDue();  // epoch boundary + flush cadence
+    void closeCurrentEpoch();
+    Sleep::Stage classifyEpoch(uint8_t movement, uint8_t hrMean) const;
+    void flushEpochs();
 
-    // Parses probe.csv into stats for the GUI. Runs on GUI start; the file
-    // is small (one night ~80 KB), so a linear pass is acceptable here.
-    CustomMessage::ProbeStatsData analyzeLog() const;
+    // Finalizes slp_cur.bin from the epoch records on flash (used by both
+    // normal close and boot recovery), then archives it.
+    void finalizeSessionFile();
+    void recoverInterruptedSession();
+
+    void sendSessionState();
+    void sendSummary();
+    bool loadLastHeader(Sleep::SessionHeader& hdr);
+
+    // Local wall-clock helpers
+    static void localTime(std::tm& out);
+    static uint16_t localMinutes(std::time_t t);
+    static uint32_t localDateKey(std::time_t t);
 
     static uint32_t ParseVersion(const char* str);
 };

@@ -18,8 +18,11 @@ public:
 
     virtual void onIdleTimeout() {}
 
-    /** Overnight probe summary, pushed by the service when the GUI starts. */
-    virtual void onProbeStats(const CustomMessage::ProbeStatsData&) {}
+    /** Tracking state changed (or periodic refresh while TRACKING). */
+    virtual void onSessionState(const CustomMessage::SessionStateData&) {}
+
+    /** Last completed night's summary arrived. */
+    virtual void onSleepSummary(const CustomMessage::SleepSummaryData&) {}
 
 protected:
     Model* model;

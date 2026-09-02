@@ -11,42 +11,95 @@
 
 namespace CustomMessage {
 
+// GUI --> Service
+constexpr SDK::MessageType::Type TRACKING_TOGGLE = 0x00000001;
+constexpr SDK::MessageType::Type SUMMARY_REQUEST = 0x00000002;
 // Service --> GUI
-constexpr SDK::MessageType::Type PROBE_STATS = 0x00000001;
+constexpr SDK::MessageType::Type SESSION_STATE   = 0x00000003;
+constexpr SDK::MessageType::Type SLEEP_SUMMARY   = 0x00000004;
 
-// Battery deci-percent when no sample has arrived yet.
-constexpr int16_t kBatteryUnknown = -1;
+namespace TrackingState {
+constexpr uint8_t IDLE     = 0;
+constexpr uint8_t TRACKING = 1;
+}
 
-// POD summary of the overnight probe log (probe.csv), computed by the
-// service from the on-flash file and handed to the GUI as a whole.
-struct ProbeStatsData {
-    uint32_t firstEpoch;   // Epoch of first log line; 0 = no data at all
-    uint32_t lastEpoch;    // Epoch of last log line
-    uint32_t maxGapSec;    // Longest silence between consecutive log lines
-    uint32_t upMin;        // Current service uptime (minutes)
-    uint32_t hrSamples;    // 'H' lines
-    uint16_t boots;        // 'B' lines — >1 means the service restarted
-    uint16_t stops;        // 'X' lines — COMMAND_APP_STOP received
-    uint16_t aliveCount;   // 'A' lines (one per minute of service life)
-    int16_t  battFirstD;   // Battery deci-percent, first alive marker
-    int16_t  battLastD;    // Battery deci-percent, most recent sample
+// GUI --> Service
+//
+// R1 pressed: start a night session (IDLE) or end it (TRACKING).
+struct TrackingToggle : public SDK::MessageBase {
+    TrackingToggle()
+        : SDK::MessageBase(TRACKING_TOGGLE)
+    {}
+};
+
+// GUI --> Service
+//
+// Ask for the current state + last-night summary (sent on GUI start).
+struct SummaryRequest : public SDK::MessageBase {
+    SummaryRequest()
+        : SDK::MessageBase(SUMMARY_REQUEST)
+    {}
+};
+
+// POD payloads (MessageBase is non-copyable; the GUI keeps copies of
+// these, not of the messages).
+struct SessionStateData {
+    uint8_t  state;       // TrackingState::*
+    uint8_t  aborted;     // Sleep::Flags::* of the last session, 0 if none
+    uint16_t elapsedMin;  // while TRACKING
+    uint8_t  liveHr;      // latest bpm while TRACKING, 0 = none yet
+    uint8_t  hasSummary;  // a completed night is available for SLEEP_SUMMARY
+};
+
+struct SleepSummaryData {
+    uint32_t dateKey;     // YYYYMMDD of sleep onset
+    uint16_t bedMin;      // local minutes since midnight
+    uint16_t wakeMin;
+    uint16_t totalMin;
+    uint16_t awakeMin;
+    uint16_t lightMin;
+    uint16_t deepMin;
+    uint8_t  hrMin;       // 0 = no valid HR
+    uint8_t  hrAvg;
+    uint8_t  hrMax;
+    uint8_t  flags;       // Sleep::Flags::*
 };
 
 // Service --> GUI
 //
-// Sent when the GUI starts; the view renders it as plain text. Pure data;
-// allocated from a kernel pool.
-struct ProbeStats : public SDK::MessageBase {
-    ProbeStatsData d;
+// Current tracking state. Sent on GUI start, on every state change, and
+// periodically while TRACKING so the view's elapsed time and live HR
+// stay fresh.
+struct SessionState : public SDK::MessageBase {
+    SessionStateData d;
 
-    ProbeStats()
-        : SDK::MessageBase(PROBE_STATS)
+    SessionState()
+        : SDK::MessageBase(SESSION_STATE)
         , d{}
     {}
 
-    explicit ProbeStats(const ProbeStatsData& stats)
-        : SDK::MessageBase(PROBE_STATS)
-        , d(stats)
+    explicit SessionState(const SessionStateData& data)
+        : SDK::MessageBase(SESSION_STATE)
+        , d(data)
+    {}
+};
+
+// Service --> GUI
+//
+// Last completed night's summary, decoded from the on-flash session
+// header. Sent on GUI start (if available) and right after a session
+// closes.
+struct SleepSummary : public SDK::MessageBase {
+    SleepSummaryData d;
+
+    SleepSummary()
+        : SDK::MessageBase(SLEEP_SUMMARY)
+        , d{}
+    {}
+
+    explicit SleepSummary(const SleepSummaryData& data)
+        : SDK::MessageBase(SLEEP_SUMMARY)
+        , d(data)
     {}
 };
 

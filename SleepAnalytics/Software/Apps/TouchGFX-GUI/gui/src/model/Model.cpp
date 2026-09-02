@@ -3,6 +3,7 @@
 #include <gui/common/FrontendApplication.hpp>
 
 #include "SDK/Kernel/KernelProviderGUI.hpp"
+#include "SDK/Messages/MessageGuard.hpp"
 #include "SDK/Port/TouchGFX/TouchGFXCommandProcessor.hpp"
 
 #define LOG_MODULE_PRX      "Model"
@@ -111,10 +112,17 @@ void Model::onSuspend()
 bool Model::customMessageHandler(SDK::MessageBase* msg)
 {
     switch (msg->getType()) {
-        case CustomMessage::PROBE_STATS: {
-            auto* m = static_cast<CustomMessage::ProbeStats*>(msg);
+        case CustomMessage::SESSION_STATE: {
+            auto* m = static_cast<CustomMessage::SessionState*>(msg);
             if (modelListener) {
-                modelListener->onProbeStats(m->d);
+                modelListener->onSessionState(m->d);
+            }
+        } break;
+
+        case CustomMessage::SLEEP_SUMMARY: {
+            auto* m = static_cast<CustomMessage::SleepSummary*>(msg);
+            if (modelListener) {
+                modelListener->onSleepSummary(m->d);
             }
         } break;
 
@@ -123,4 +131,9 @@ bool Model::customMessageHandler(SDK::MessageBase* msg)
     }
 
     return true;
+}
+
+void Model::trackingToggle()
+{
+    SDK::send_msg<CustomMessage::TrackingToggle>(mKernel);
 }
