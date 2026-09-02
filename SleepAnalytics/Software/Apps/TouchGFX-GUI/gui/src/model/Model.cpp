@@ -126,6 +126,13 @@ bool Model::customMessageHandler(SDK::MessageBase* msg)
             }
         } break;
 
+        case CustomMessage::HISTORY_ENTRY: {
+            auto* m = static_cast<CustomMessage::HistoryEntry*>(msg);
+            if (modelListener) {
+                modelListener->onHistoryEntry(m->d);
+            }
+        } break;
+
         default:
             break;
     }
@@ -136,4 +143,9 @@ bool Model::customMessageHandler(SDK::MessageBase* msg)
 void Model::trackingToggle()
 {
     SDK::send_msg<CustomMessage::TrackingToggle>(mKernel);
+}
+
+void Model::historyRequest()
+{
+    SDK::send_msg<CustomMessage::HistoryRequest>(mKernel);
 }

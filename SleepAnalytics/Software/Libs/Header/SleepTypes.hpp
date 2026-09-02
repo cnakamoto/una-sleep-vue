@@ -88,9 +88,36 @@ constexpr uint8_t kAbortedBattery = 0x02;
 constexpr uint8_t kInterrupted    = 0x04;
 }
 
+// ---- Night index: slp_idx.bin ---------------------------------------
+// Ring of the last kMaxNights sessions, most recent first. One slot
+// carries everything a history row needs, so the GUI never opens the
+// per-night files to build the list.
+constexpr uint8_t kMaxNights = 14;
+
+struct IndexSlot {
+    uint32_t dateKey;     // YYYYMMDD of sleep onset
+    uint16_t bedMin;      // local minutes since midnight
+    uint16_t wakeMin;
+    uint16_t totalMin;
+    uint16_t deepMin;
+    uint16_t lightMin;
+    uint16_t awakeMin;
+    uint8_t  hrAvg;
+    uint8_t  flags;       // Sleep::Flags::*
+};
+static_assert(sizeof(IndexSlot) == 20, "index slot layout changed");
+
+struct IndexHeader {
+    char     magic[4];    // "SIDX"
+    uint32_t version;     // 1
+    uint32_t count;       // valid slots (<= kMaxNights)
+};
+static_assert(sizeof(IndexHeader) == 12, "index header must stay 12 bytes");
+
 // File names (app-private dir; see deploy layout /Apps/SleepAnalytics/).
 constexpr const char* kCurrentFile = "slp_cur.bin";   // session in progress
 constexpr const char* kLastFile    = "slp_last.bin";  // most recent closed night
+constexpr const char* kIndexFile   = "slp_idx.bin";   // night index ring
 
 } // namespace Sleep
 

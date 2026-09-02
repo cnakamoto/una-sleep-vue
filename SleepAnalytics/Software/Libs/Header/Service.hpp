@@ -102,6 +102,10 @@ private:
     void sendSummary();
     bool loadLastHeader(Sleep::SessionHeader& hdr);
 
+    // Night index ring (slp_idx.bin), updated on every session close.
+    void updateIndex(const Sleep::SessionHeader& hdr);
+    void sendHistory();
+
     // Local wall-clock helpers
     static void localTime(std::tm& out);
     static uint16_t localMinutes(std::time_t t);

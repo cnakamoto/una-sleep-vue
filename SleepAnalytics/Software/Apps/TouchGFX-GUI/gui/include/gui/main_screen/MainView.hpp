@@ -22,6 +22,9 @@ public:
     /** Last completed night's summary arrived. */
     void onSleepSummary(const CustomMessage::SleepSummaryData& summary);
 
+    /** One history row arrived (streamed after a page switch). */
+    void onHistoryEntry(const CustomMessage::HistoryEntryData& entry);
+
 protected:
     virtual void handleKeyEvent(uint8_t key) override;
 
@@ -30,7 +33,7 @@ private:
     // (textArea1 is removed in setupScreen — no Designer round-trip needed).
     // This TouchGFX port stores a pointer to the wildcard, not a copy —
     // the buffer must outlive the widget (it's a member, so it does).
-    static constexpr uint16_t kTextBufferSize = 192;
+    static constexpr uint16_t kTextBufferSize = 224;
     touchgfx::TextAreaWithOneWildcard mainText;
     touchgfx::Unicode::UnicodeChar textBuffer[kTextBufferSize];
 
@@ -39,7 +42,14 @@ private:
     bool mHasState = false;
     bool mHasSummary = false;
 
+    // L1 pages the IDLE view between last-night detail and week history.
+    enum class Page : uint8_t { SUMMARY, HISTORY };
+    Page mPage = Page::SUMMARY;
+    CustomMessage::HistoryEntryData mRows[CustomMessage::HistoryEntryData::kMaxRows];
+    uint8_t mRowCount = 0;
+
     void render();
+    void renderHistory();
 };
 
 #endif // MAINVIEW_HPP

@@ -26,3 +26,8 @@ void MainPresenter::onSleepSummary(const CustomMessage::SleepSummaryData& summar
 {
     view.onSleepSummary(summary);
 }
+
+void MainPresenter::onHistoryEntry(const CustomMessage::HistoryEntryData& entry)
+{
+    view.onHistoryEntry(entry);
+}

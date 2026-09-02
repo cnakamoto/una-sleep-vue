@@ -36,8 +36,14 @@ public:
         model->trackingToggle();
     }
 
+    /** History page opened: stream the night index from the service. */
+    void historyRequest() {
+        model->historyRequest();
+    }
+
     void onSessionState(const CustomMessage::SessionStateData& state) override;
     void onSleepSummary(const CustomMessage::SleepSummaryData& summary) override;
+    void onHistoryEntry(const CustomMessage::HistoryEntryData& entry) override;
 
 private:
     MainPresenter();

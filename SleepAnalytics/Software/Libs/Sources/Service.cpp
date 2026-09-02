@@ -134,6 +134,10 @@ void Service::run()
                     sendSummary();
                     break;
 
+                case CustomMessage::HISTORY_REQUEST:
+                    sendHistory();
+                    break;
+
                 default:
                     break;
             }
@@ -495,7 +499,124 @@ void Service::finalizeSessionFile()
     mHasSummary = true;
     LOG_INFO("session closed: %u epochs, deep %umin\n", epochCount, hdr.deepMin);
 
+    updateIndex(hdr);
     sendSummary();
+}
+
+void Service::updateIndex(const Sleep::SessionHeader& hdr)
+{
+    Sleep::IndexHeader idx{};
+    Sleep::IndexSlot slots[Sleep::kMaxNights];
+    uint32_t count = 0;
+
+    // Load existing ring (tolerate missing/corrupt: start fresh).
+    {
+        auto file = mKernel.fs.file(Sleep::kIndexFile);
+        if (file && file->open(false)) {
+            size_t br = 0;
+            if (file->read(reinterpret_cast<char*>(&idx), sizeof(idx), br)
+                    && br == sizeof(idx)
+                    && memcmp(idx.magic, "SIDX", 4) == 0
+                    && idx.version == 1) {
+                count = idx.count <= Sleep::kMaxNights ? idx.count : Sleep::kMaxNights;
+                size_t br2 = 0;
+                file->read(reinterpret_cast<char*>(slots),
+                           count * sizeof(Sleep::IndexSlot), br2);
+                count = br2 / sizeof(Sleep::IndexSlot);
+            }
+            file->close();
+        }
+    }
+
+    // Re-tracked night: newest attempt replaces the old date entry.
+    uint32_t kept = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (slots[i].dateKey != hdr.dateKey) {
+            slots[kept++] = slots[i];
+        }
+    }
+    if (kept > Sleep::kMaxNights - 1) {
+        kept = Sleep::kMaxNights - 1;
+    }
+
+    // Newest first.
+    for (uint32_t i = kept; i > 0; --i) {
+        slots[i] = slots[i - 1];
+    }
+    Sleep::IndexSlot& s = slots[0];
+    s.dateKey  = hdr.dateKey;
+    s.bedMin   = localMinutes(hdr.bedEpoch);
+    s.wakeMin  = localMinutes(hdr.wakeEpoch);
+    s.totalMin = hdr.totalMin;
+    s.deepMin  = hdr.deepMin;
+    s.lightMin = hdr.lightMin;
+    s.awakeMin = hdr.awakeMin;
+    s.hrAvg    = hdr.hrAvg;
+    s.flags    = hdr.flags;
+    ++kept;
+
+    memcpy(idx.magic, "SIDX", 4);
+    idx.version = 1;
+    idx.count   = kept;
+
+    auto file = mKernel.fs.file(Sleep::kIndexFile);
+    if (file && file->open(true, true)) {
+        size_t bw = 0;
+        file->write(reinterpret_cast<const char*>(&idx), sizeof(idx), bw);
+        file->write(reinterpret_cast<const char*>(slots),
+                    kept * sizeof(Sleep::IndexSlot), bw);
+        file->flush();
+        file->close();
+    }
+}
+
+void Service::sendHistory()
+{
+    if (!mGUIStarted) {
+        return;
+    }
+
+    Sleep::IndexHeader idx{};
+    Sleep::IndexSlot slots[CustomMessage::HistoryEntryData::kMaxRows];
+    uint32_t count = 0;
+
+    {
+        auto file = mKernel.fs.file(Sleep::kIndexFile);
+        if (!file || !file->open(false)) {
+            return;
+        }
+        size_t br = 0;
+        if (file->read(reinterpret_cast<char*>(&idx), sizeof(idx), br)
+                && br == sizeof(idx)
+                && memcmp(idx.magic, "SIDX", 4) == 0
+                && idx.version == 1) {
+            uint32_t want = idx.count;
+            if (want > CustomMessage::HistoryEntryData::kMaxRows) {
+                want = CustomMessage::HistoryEntryData::kMaxRows;
+            }
+            size_t br2 = 0;
+            file->read(reinterpret_cast<char*>(slots),
+                       want * sizeof(Sleep::IndexSlot), br2);
+            count = br2 / sizeof(Sleep::IndexSlot);
+        }
+        file->close();
+    }
+
+    for (uint32_t i = 0; i < count; ++i) {
+        CustomMessage::HistoryEntryData d{};
+        d.dateKey  = slots[i].dateKey;
+        d.bedMin   = slots[i].bedMin;
+        d.wakeMin  = slots[i].wakeMin;
+        d.totalMin = slots[i].totalMin;
+        d.deepMin  = slots[i].deepMin;
+        d.lightMin = slots[i].lightMin;
+        d.awakeMin = slots[i].awakeMin;
+        d.hrAvg    = slots[i].hrAvg;
+        d.flags    = slots[i].flags;
+        d.row      = static_cast<uint8_t>(i);
+        d.rowCount = static_cast<uint8_t>(count);
+        SDK::send_msg<CustomMessage::HistoryEntry>(mKernel, d);
+    }
 }
 
 void Service::recoverInterruptedSession()

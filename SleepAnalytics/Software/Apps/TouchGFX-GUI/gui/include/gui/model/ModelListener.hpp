@@ -24,6 +24,9 @@ public:
     /** Last completed night's summary arrived. */
     virtual void onSleepSummary(const CustomMessage::SleepSummaryData&) {}
 
+    /** One history row arrived (streamed after HistoryRequest). */
+    virtual void onHistoryEntry(const CustomMessage::HistoryEntryData&) {}
+
 protected:
     Model* model;
 

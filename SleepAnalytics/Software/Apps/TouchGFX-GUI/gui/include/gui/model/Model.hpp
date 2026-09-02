@@ -41,6 +41,9 @@ public:
     /** R1 pressed: ask the service to start/stop the night session. */
     void trackingToggle();
 
+    /** History page opened: ask the service to stream the night index. */
+    void historyRequest();
+
 protected:
     ModelListener* modelListener;           ///< Pointer to model listener
 

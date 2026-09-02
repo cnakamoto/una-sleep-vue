@@ -34,7 +34,7 @@ void MainView::setupScreen()
 {
     MainViewBase::setupScreen();
 
-    buttons.setL1(ButtonsSet::NONE);
+    buttons.setL1(ButtonsSet::AMBER);  // summary <-> week history
     buttons.setL2(ButtonsSet::NONE);
     buttons.setR1(ButtonsSet::AMBER);  // start / stop sleep session
     buttons.setR2(ButtonsSet::WHITE);  // exit
@@ -73,9 +73,64 @@ void MainView::onSleepSummary(const CustomMessage::SleepSummaryData& summary)
     render();
 }
 
+void MainView::onHistoryEntry(const CustomMessage::HistoryEntryData& entry)
+{
+    if (entry.row < CustomMessage::HistoryEntryData::kMaxRows) {
+        mRows[entry.row] = entry;
+        if (mRowCount < entry.rowCount) {
+            mRowCount = entry.rowCount;
+        }
+    }
+    if (mPage == Page::HISTORY) {
+        render();
+    }
+}
+
+void MainView::renderHistory()
+{
+    if (mRowCount == 0) {
+        touchgfx::Unicode::snprintf(textBuffer, kTextBufferSize,
+                                    "WEEK HISTORY\n\nno nights yet");
+    } else {
+        touchgfx::Unicode::snprintf(textBuffer, kTextBufferSize,
+                                    "WEEK (%u NIGHTS)\n",
+                                    static_cast<unsigned>(mRowCount));
+        for (uint8_t i = 0; i < mRowCount; ++i) {
+            const auto& r = mRows[i];
+            uint16_t len = touchgfx::Unicode::strlen(textBuffer);
+            if (len >= kTextBufferSize - 20) {
+                break; // out of buffer: show what fits
+            }
+            touchgfx::Unicode::snprintf(
+                textBuffer + len, kTextBufferSize - len,
+                "%02u/%02u %luH%02lu D%luH%02lu\n",
+                static_cast<unsigned>((r.dateKey / 100) % 100),
+                static_cast<unsigned>(r.dateKey % 100),
+                static_cast<unsigned long>(r.totalMin / 60),
+                static_cast<unsigned long>(r.totalMin % 60),
+                static_cast<unsigned long>(r.deepMin / 60),
+                static_cast<unsigned long>(r.deepMin % 60));
+        }
+        uint16_t len = touchgfx::Unicode::strlen(textBuffer);
+        touchgfx::Unicode::snprintf(textBuffer + len, kTextBufferSize - len,
+                                    "\nL1 BACK");
+    }
+
+    mainText.resizeToCurrentText();
+    mainText.invalidate();
+}
+
 void MainView::render()
 {
-    if (mHasState && mState.state == CustomMessage::TrackingState::TRACKING) {
+    const bool tracking = mHasState
+        && mState.state == CustomMessage::TrackingState::TRACKING;
+
+    if (!tracking && mPage == Page::HISTORY) {
+        renderHistory();
+        return;
+    }
+
+    if (tracking) {
         char dur[12];
         fmtDur(mState.elapsedMin, dur, sizeof(dur));
         if (mState.liveHr > 0) {
@@ -106,7 +161,7 @@ void MainView::render()
         if (mSummary.hrMin > 0) {
             touchgfx::Unicode::snprintf(
                 textBuffer, kTextBufferSize,
-                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s HR%u-%u\n%s\nR1 START",
+                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s HR%u-%u\n%s\nR1 START L1 WK",
                 total, deep, awake, light, bed, wake,
                 static_cast<unsigned>(mSummary.hrMin),
                 static_cast<unsigned>(mSummary.hrMax),
@@ -114,12 +169,12 @@ void MainView::render()
         } else {
             touchgfx::Unicode::snprintf(
                 textBuffer, kTextBufferSize,
-                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s\n%s\nR1 START",
+                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s\n%s\nR1 START L1 WK",
                 total, deep, awake, light, bed, wake, endNote);
         }
     } else {
         touchgfx::Unicode::snprintf(textBuffer, kTextBufferSize,
-                                    "NO SLEEP YET\n\nR1 START");
+                                    "NO SLEEP YET\n\nR1 START L1 WK");
     }
 
     mainText.resizeToCurrentText();
@@ -129,7 +184,17 @@ void MainView::render()
 void MainView::handleKeyEvent(uint8_t key)
 {
     if (key == Gui::Config::Button::L1) {
-
+        // Page the IDLE view between last-night detail and week history.
+        const bool tracking = mHasState
+            && mState.state == CustomMessage::TrackingState::TRACKING;
+        if (!tracking) {
+            mPage = (mPage == Page::SUMMARY) ? Page::HISTORY : Page::SUMMARY;
+            if (mPage == Page::HISTORY) {
+                mRowCount = 0; // show "loading" until entries stream in
+                presenter->historyRequest();
+            }
+            render();
+        }
     }
 
     if (key == Gui::Config::Button::L2) {
