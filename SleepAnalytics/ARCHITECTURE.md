@@ -269,3 +269,9 @@ per §3–§8) is implemented in v0.2.0: manual R1 start/stop, 30 s epoch
 staging per §5, §6 binary storage with crash recovery, and the summary
 GUI. Field-tuning night: compare its stage split against the probe's
 raw HR curve from run 3.
+
+**GUI independence: verified on hardware (2026-09-02).** Exiting the
+app (R2 → `sys.exit()`) while TRACKING does not stop the service —
+reopening shows the session still running with correct elapsed time.
+The intended overnight flow (R1 at bedtime, watch face as usual, R1 in
+the morning) works end to end.
