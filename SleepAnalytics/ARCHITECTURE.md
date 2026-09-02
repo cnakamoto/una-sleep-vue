@@ -237,3 +237,32 @@ log (1,247 lines):
    1 — the user power-cycled promptly).
 6. Battery unreadable this test: constant 100.0 % throughout.
    → Overnight run still needed for the §10.2 drain verdict.
+
+### Probe run 3 (2026-09-01 → 09-02, 25 h wear): ALL CLEAR
+
+Worn continuously from Tue 07:40 EDT to Wed 08:45 EDT plug-in.
+84,278 log lines. Verdicts:
+
+1. **Residency: total.** 25.06 h continuous service life — zero
+   reboots, zero stops, zero GUI opens, 1,495 alive markers (exactly
+   60/h), no gaps > 90 s in the entire record.
+2. **Battery: 100.0 % → 98.0 % = 2.0 % over 25.1 h (~0.6 %/night).**
+   The §10.2 concern is dead; the §4 sensor plan is viable with an
+   order of magnitude to spare. SpO2 spot-checks (§10.4) become worth
+   testing.
+3. **HR coverage: 80,540 valid samples, 98 % of the 1 Hz stream**,
+   trust level 3 (max) for the bulk of the night.
+4. **First real sleep data — and the §5 heuristic holds up.** Nightly
+   HR curve: evening onset ~23:10–23:30 (86→79 bpm), sustained low of
+   73 bpm in the 03:30–05:40 window (**23 % dip** vs onset), a restless
+   02:00–03:00 stretch (89–93), and a crisp wake spike at 06:41 (110).
+   The planned "≥10 % below baseline → DEEP candidate" threshold would
+   have segmented this night correctly from HR alone.
+5. §10.3 update: the 1 Hz fan-out strongly implies the platform's
+   health service runs HR continuously anyway — subscribing to
+   HEART_RATE_METRICS (AHR/RHR) instead of deriving our own baseline is
+   now the default plan.
+
+**Probe phase complete.** Questions 1–2 answered; the probe app has
+earned its retirement. Next: implement the real tracker (IDLE →
+TRACKING → SUMMARY) per §3–§8.
