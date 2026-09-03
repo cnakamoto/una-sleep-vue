@@ -162,7 +162,7 @@ void MainView::render()
         if (mSummary.hrMin > 0) {
             touchgfx::Unicode::snprintf(
                 textBuffer, kTextBufferSize,
-                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s HR%u-%u\n%s\nR1 START L1 WK",
+                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s HR%u-%u\n%s\nAUTO 20-03\nR1 START L1 WK",
                 total, deep, awake, light, bed, wake,
                 static_cast<unsigned>(mSummary.hrMin),
                 static_cast<unsigned>(mSummary.hrMax),
@@ -170,12 +170,12 @@ void MainView::render()
         } else {
             touchgfx::Unicode::snprintf(
                 textBuffer, kTextBufferSize,
-                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s\n%s\nR1 START L1 WK",
+                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s\n%s\nAUTO 20-03\nR1 START L1 WK",
                 total, deep, awake, light, bed, wake, endNote);
         }
     } else {
         touchgfx::Unicode::snprintf(textBuffer, kTextBufferSize,
-                                    "NO SLEEP YET\n\nR1 START L1 WK");
+                                    "NO SLEEP YET\n\nAUTO 20-03\nR1 START L1 WK");
     }
 
     mainText.resizeToCurrentText();

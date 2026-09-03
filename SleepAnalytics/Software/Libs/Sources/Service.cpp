@@ -55,6 +55,10 @@ Service::Service(SDK::Kernel& kernel)
     , mWakeWindowCount(0)
     , mWakeActiveSum(0)
     , mQuietEpochs(0)
+    , mOnsetRing{}
+    , mOnsetRingIdx(0)
+    , mOnsetRingCount(0)
+    , mWornNow(false)
     , mEpochBufCount(0)
     , mFlushedEpochs(0)
     , mAwakeEpochs(0)
@@ -93,6 +97,12 @@ void Service::run()
 
     recoverInterruptedSession();
     mHasSummary = mKernel.fs.exist(Sleep::kLastFile);
+
+    // IDLE arming: motion + touch run in both states (auto-start).
+    // HR + battery join only while TRACKING.
+    mNextEpochCloseMs = mKernel.sys.getTimeMs() + Sleep::Config::kEpochSec * 1000;
+    mSensorMotion.connect();
+    mSensorTouch.connect();
 
     uint32_t statePushCountdown = 0;
 
@@ -133,7 +143,7 @@ void Service::run()
                         mCloseFlags = 0;
                         stopTracking();
                     } else {
-                        startTracking();
+                        startTracking(0);
                     }
                     sendSessionState();
                     break;
@@ -154,13 +164,12 @@ void Service::run()
             mKernel.comm.releaseMessage(msg);
         }
 
-        if (mState == CustomMessage::TrackingState::TRACKING) {
-            closeEpochsIfDue();
+        closeEpochsIfDue(); // epoch boundaries in both states
 
-            if (mGUIStarted && ++statePushCountdown >= kStatePushEveryPolls) {
-                statePushCountdown = 0;
-                sendSessionState();
-            }
+        if (mState == CustomMessage::TrackingState::TRACKING
+                && mGUIStarted && ++statePushCountdown >= kStatePushEveryPolls) {
+            statePushCountdown = 0;
+            sendSessionState();
         }
     }
 }
@@ -182,6 +191,36 @@ void Service::onStopGUI()
 
 void Service::handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data)
 {
+    // Motion + touch are needed in IDLE too (auto-start arming).
+    if (mSensorMotion.matchesDriver(handle)) {
+        for (uint16_t i = 0; i < data.size(); ++i) {
+            SDK::SensorDataParser::MotionDetect p(data[i]);
+            if (p.isDataValid()) {
+                auto id = p.getID();
+                if (id == SDK::SensorDataParser::MotionDetect::Motion::MOTION
+                        || id == SDK::SensorDataParser::MotionDetect::Motion::SIG_MOTION) {
+                    mEpochMovement++;
+                }
+            }
+        }
+        return;
+    }
+
+    if (mSensorTouch.matchesDriver(handle)) {
+        SDK::SensorDataParser::Touch p(data[0]);
+        if (p.isDataValid()) {
+            mWornNow = p.isTouched();
+            if (mState == CustomMessage::TrackingState::TRACKING) {
+                if (mWornNow) {
+                    mUnwornSinceMs = 0;
+                } else if (mUnwornSinceMs == 0) {
+                    mUnwornSinceMs = mKernel.sys.getTimeMs();
+                }
+            }
+        }
+        return;
+    }
+
     if (mState != CustomMessage::TrackingState::TRACKING) {
         return;
     }
@@ -236,16 +275,80 @@ void Service::handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data)
     }
 }
 
+void Service::idleEpochClosed()
+{
+    // Motion history ring (60 min) — the onset rule's only input
+    // besides worn-state and the wall clock.
+    mOnsetRing[mOnsetRingIdx % Sleep::Config::kOnsetRingEpochs] = mEpochMovement;
+    ++mOnsetRingIdx;
+    if (mOnsetRingCount < Sleep::Config::kOnsetRingEpochs) {
+        ++mOnsetRingCount;
+    }
+    mEpochMovement = 0;
+    mEpochHrSum = 0;
+    mEpochHrCount = 0;
+
+    if (mOnsetRingCount < Sleep::Config::kOnsetWindowEpochs || !mWornNow) {
+        return;
+    }
+
+    // Night arming window (wraps midnight, e.g. 20:00 -> 03:00).
+    uint16_t tod = localMinutes(time(nullptr));
+    bool armed = (Sleep::Config::kArmStartMin <= Sleep::Config::kArmEndMin)
+        ? (tod >= Sleep::Config::kArmStartMin && tod < Sleep::Config::kArmEndMin)
+        : (tod >= Sleep::Config::kArmStartMin || tod < Sleep::Config::kArmEndMin);
+    if (!armed) {
+        return;
+    }
+
+    uint16_t quiet = 0;
+    for (uint16_t k = 0; k < Sleep::Config::kOnsetWindowEpochs; ++k) {
+        uint16_t idx = (mOnsetRingIdx - 1 - k + Sleep::Config::kOnsetRingEpochs)
+                       % Sleep::Config::kOnsetRingEpochs;
+        if (mOnsetRing[idx] == 0) {
+            ++quiet;
+        }
+    }
+    if (quiet < Sleep::Config::kOnsetMinQuietEpochs) {
+        return;
+    }
+
+    // Onset! Bed = just after the last significant motion (mv >= 2),
+    // backdated at most kBackfillMaxEpochs.
+    uint16_t back = 0;
+    while (back < mOnsetRingCount && back < Sleep::Config::kBackfillMaxEpochs) {
+        uint16_t idx = (mOnsetRingIdx - 1 - back + Sleep::Config::kOnsetRingEpochs)
+                       % Sleep::Config::kOnsetRingEpochs;
+        if (mOnsetRing[idx] >= 2) {
+            break;
+        }
+        ++back;
+    }
+    LOG_INFO("auto-start: onset (quiet %u), backdating %u epochs\n", quiet, back);
+
+    startTracking(back * Sleep::Config::kEpochSec);
+
+    // Backfill the quiet stretch as LIGHT epochs through the normal
+    // path, so the night file spans bed -> wake coherently.
+    for (uint16_t e = 0; e < back; ++e) {
+        mEpochMovement = 0;
+        mEpochHrSum = 0;
+        mEpochHrCount = 0;
+        closeCurrentEpoch();
+    }
+}
+
 // ------------------------------------------------------------- state flow
 
-void Service::startTracking()
+void Service::startTracking(uint32_t backdateSec)
 {
-    LOG_INFO("start tracking\n");
+    LOG_INFO("start tracking (backdate %lus)\n",
+             static_cast<unsigned long>(backdateSec));
 
     mState = CustomMessage::TrackingState::TRACKING;
-    mBedEpoch = time(nullptr);
-    mSessionStartMs = mKernel.sys.getTimeMs();
-    mNextEpochCloseMs = mSessionStartMs + Sleep::Config::kEpochSec * 1000;
+    mBedEpoch = time(nullptr) - backdateSec;
+    mSessionStartMs = mKernel.sys.getTimeMs() - backdateSec * 1000;
+    mNextEpochCloseMs = mKernel.sys.getTimeMs() + Sleep::Config::kEpochSec * 1000;
 
     mEpochMovement = 0;
     mEpochHrSum = 0;
@@ -290,9 +393,9 @@ void Service::startTracking()
         LOG_INFO("failed to create %s\n", Sleep::kCurrentFile);
     }
 
+    // Motion + touch stay connected across states (auto-start arming);
+    // HR + battery are TRACKING-only.
     mSensorHr.connect();
-    mSensorMotion.connect();
-    mSensorTouch.connect();
     mSensorBattery.connect();
 }
 
@@ -301,8 +404,6 @@ void Service::stopTracking()
     LOG_INFO("stop tracking (flags 0x%02x)\n", mCloseFlags);
 
     mSensorHr.disconnect();
-    mSensorMotion.disconnect();
-    mSensorTouch.disconnect();
     mSensorBattery.disconnect();
 
     flushEpochs();
@@ -316,6 +417,19 @@ void Service::stopTracking()
 void Service::closeEpochsIfDue()
 {
     uint32_t now = mKernel.sys.getTimeMs();
+
+    while (static_cast<int32_t>(now - mNextEpochCloseMs) >= 0) {
+        if (mState == CustomMessage::TrackingState::TRACKING) {
+            closeCurrentEpoch();
+        } else {
+            idleEpochClosed();
+        }
+        mNextEpochCloseMs += Sleep::Config::kEpochSec * 1000;
+    }
+
+    if (mState != CustomMessage::TrackingState::TRACKING) {
+        return;
+    }
 
     // Safety aborts
     if (mUnwornSinceMs != 0 && now - mUnwornSinceMs >= Sleep::Config::kUnwornAbortSec * 1000) {
@@ -331,16 +445,9 @@ void Service::closeEpochsIfDue()
         return;
     }
 
-    while (mState == CustomMessage::TrackingState::TRACKING
-            && static_cast<int32_t>(now - mNextEpochCloseMs) >= 0) {
-        closeCurrentEpoch();
-        mNextEpochCloseMs += Sleep::Config::kEpochSec * 1000;
-    }
-
     // Auto-wake: sustained motion in the trailing window, after the
     // settle-in grace, and only if real stillness was seen this session.
-    if (mState == CustomMessage::TrackingState::TRACKING
-            && mWakeWindowCount >= Sleep::Config::kWakeWindowEpochs
+    if (mWakeWindowCount >= Sleep::Config::kWakeWindowEpochs
             && mQuietEpochs >= Sleep::Config::kWakeMinQuietEpochs
             && now - mSessionStartMs >= Sleep::Config::kWakeMinSessionMin * 60000
             && mWakeActiveSum >= Sleep::Config::kWakeMinActiveEpochs) {
@@ -538,8 +645,10 @@ void Service::finalizeSessionFile()
         hdr.flags |= mCloseFlags;
     }
 
-    if (epochCount == 0) {
-        // Nothing recorded — junk file, no night to keep.
+    if (epochCount == 0 || hdr.totalMin < Sleep::Config::kMinSaveMin) {
+        // Too short to be a night: couch capture, bench test, or nap.
+        // One real night per date is the app's model — discard quietly.
+        LOG_INFO("discarding short session (%u min)\n", hdr.totalMin);
         mKernel.fs.remove(Sleep::kCurrentFile);
         return;
     }

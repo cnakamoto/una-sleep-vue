@@ -131,10 +131,21 @@ GUI → Service:
 
 ## 9. Later increments
 
-- **Auto-detect**: arm a window (e.g., 21:00–02:00); STILL activity +
-  no wrist motion + HR trending down → auto-start; symmetric wake detect.
+- ~~**Auto-detect**~~ — **done (v0.4.0/v0.5.0), fully hands-free**:
+  - Auto-wake (v0.4.0): ≥16 of trailing 20 epochs with motion, after
+    60-min grace + ≥60 quiet epochs seen → session closes itself.
+  - Auto-start (v0.5.0): in IDLE, ≥22 of trailing 24 epochs quiet,
+    worn, local time in 20:00–03:00 → TRACKING begins, bed backdated
+    to last significant motion (≤30 min, backfilled as LIGHT).
+  - Sessions < 3 h are discarded at close (couch captures, naps) —
+    one real night per date is the app's model.
+  - Both rules were validated by offline replay over real nights
+    before shipping; knobs in SleepTypes.hpp Config.
 - **REM via HRV**: needs beat-to-beat (HEART_BEAT raw or PPG) — investigate.
 - **Sleep score**, smart alarm, FIT export of nights.
+- **24/7 model** (post-hoc segmentation instead of armed sessions):
+  onset+wake rules above are its segmentation engine; storage redesign
+  (day files) and DailyHealth platform-data investigation come first.
 
 ## 10. Open questions (verify early, in order)
 

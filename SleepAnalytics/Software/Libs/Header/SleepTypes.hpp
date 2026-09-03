@@ -42,6 +42,19 @@ constexpr uint16_t kWakeWindowEpochs    = 20;   // trailing 10 min
 constexpr uint8_t  kWakeMinActiveEpochs = 16;
 constexpr uint32_t kWakeMinSessionMin   = 60;
 constexpr uint16_t kWakeMinQuietEpochs  = 60;
+// Auto-start: in IDLE, onset = sustained quiet in the night arming
+// window while worn. Validated offline against real nights (the 22/24
+// rule fires ~10 min into stillness; bed backdates to the last
+// significant motion, capped at kBackfillMaxEpochs).
+constexpr uint16_t kOnsetWindowEpochs   = 24;   // trailing 12 min
+constexpr uint8_t  kOnsetMinQuietEpochs = 22;
+constexpr uint16_t kArmStartMin         = 20 * 60;  // local 20:00
+constexpr uint16_t kArmEndMin           = 3 * 60;   // local 03:00 (wraps midnight)
+constexpr uint16_t kOnsetRingEpochs     = 120;  // 60 min of IDLE motion history
+constexpr uint16_t kBackfillMaxEpochs   = 60;   // backdate at most 30 min
+// Sessions shorter than this are discarded at close (couch captures,
+// bench tests, naps) — one real night per date is the app's model.
+constexpr uint16_t kMinSaveMin          = 180;
 // Safety aborts while TRACKING.
 constexpr uint8_t  kBatteryAbortPct     = 8;
 constexpr uint32_t kUnwornAbortSec      = 30 * 60;

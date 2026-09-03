@@ -75,6 +75,13 @@ private:
     uint16_t                 mWakeActiveSum;
     uint16_t                 mQuietEpochs;
 
+    // Auto-start (IDLE): ring of per-epoch motion counts over the last
+    // kOnsetRingEpochs epochs, plus worn state from TOUCH_DETECT.
+    uint8_t                  mOnsetRing[Sleep::Config::kOnsetRingEpochs];
+    uint16_t                 mOnsetRingIdx;
+    uint16_t                 mOnsetRingCount;
+    bool                     mWornNow;
+
     // Buffered, not-yet-flushed epoch records
     Sleep::EpochRecord       mEpochBuf[Sleep::Config::kFlushEveryEpochs];
     uint16_t                 mEpochBufCount;
@@ -102,10 +109,11 @@ private:
 
     void handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data);
 
-    void startTracking();
+    void startTracking(uint32_t backdateSec);
     void stopTracking();      // manual stop or abort; uses mCloseFlags
-    void closeEpochsIfDue();  // epoch boundary + flush cadence
+    void closeEpochsIfDue();  // epoch boundaries in both states
     void closeCurrentEpoch();
+    void idleEpochClosed();   // IDLE: onset ring + auto-start rule
     Sleep::Stage classifyEpoch(uint8_t movement, uint8_t hrMean) const;
     void flushEpochs();
 
