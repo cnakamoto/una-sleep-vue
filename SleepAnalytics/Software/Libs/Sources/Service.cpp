@@ -7,6 +7,7 @@
 #include "SDK/SensorLayer/DataParsers/SensorDataParserBatteryLevel.hpp"
 
 #include "Service.hpp"
+#include "SleepFitWriter.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -664,6 +665,10 @@ void Service::finalizeSessionFile()
             file->close();
         }
     }
+
+    // Phone-sync spike: also emit a workout-style FIT activity into
+    // Activity/YYYYMM/ (the folder the phone pulls over BLE FTS).
+    SleepFitWriter::exportNight(mKernel, hdr);
 
     // Archive the night and refresh the "last night" copy the GUI reads.
     char archive[24];
