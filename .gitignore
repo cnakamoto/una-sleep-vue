@@ -4,6 +4,10 @@ una-sdk/
 # Python virtualenv (pip deps: pyelftools, Pillow)
 .venv/
 
+# Analysis tooling venv (matplotlib) + downloaded night data
+.tools-venv/
+nights/
+
 # IDE / OS
 .idea/
 .DS_Store
