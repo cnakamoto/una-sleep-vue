@@ -108,12 +108,34 @@ def style(ax):
 def main():
     path = sys.argv[1]
     out = sys.argv[2] if len(sys.argv) > 2 else path.rsplit(".", 1)[0] + ".png"
+    end_arg = next((a.split("=", 1)[1] for a in sys.argv[1:]
+                    if a.startswith("--end=")), None)
     date_key, bed, epochs, hdr = load(path)
+
+    trimmed_from = None
+    if end_arg:
+        hh, mm = (int(x) for x in end_arg.split(":"))
+        cut = epochs[0]["t"].replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if cut < epochs[0]["t"]:
+            cut += timedelta(days=1)  # end is on the wake side of midnight
+        if cut < epochs[-1]["t"]:
+            trimmed_from = epochs[-1]["t"]
+            epochs = [e for e in epochs if e["t"] <= cut]
 
     ts = [e["t"] for e in epochs]
     recorded = [e["stage"] for e in epochs]
     new_stages, baseline = restage(epochs)
     new_deep_min = sum(1 for s in new_stages if s == 2) // 2
+
+    # Totals from epochs (single source of truth — also correct after trim)
+    total_min = len(epochs) // 2
+    rec_deep = sum(1 for s in recorded if s == 2) // 2
+    rec_light = sum(1 for s in recorded if s == 1) // 2
+    rec_awake = sum(1 for s in recorded if s == 0) // 2
+    hrs_valid = [e["hr"] for e in epochs if e["hr"] > 0]
+    hr_min = min(hrs_valid) if hrs_valid else 0
+    hr_avg = sum(hrs_valid) // len(hrs_valid) if hrs_valid else 0
+    hr_max = max(hrs_valid) if hrs_valid else 0
 
     fig, axes = plt.subplots(4, 1, figsize=(13, 10.5), sharex=True,
                              height_ratios=[3, 1.6, 1.6, 1.3],
@@ -122,11 +144,14 @@ def main():
     for ax in axes:
         style(ax)
 
+    trim_note = (f"   (trimmed from {trimmed_from:%H:%M} manual stop)"
+                 if trimmed_from else "")
     fig.suptitle(
         f"SleepAnalytics — night of {date_key}   {ts[0]:%a %H:%M} → {ts[-1]:%a %H:%M}   "
-        f"total {hdr['total']//60}h{hdr['total']%60:02d}   HR {hdr['hrMin']}–{hdr['hrMax']} avg {hdr['hrAvg']}\n"
-        f"recorded: deep {hdr['deep']}m · light {hdr['light']}m · awake {hdr['awake']}m     "
-        f"restaged (v0.3.1): deep {new_deep_min}m ({new_deep_min * 100 // hdr['total']}%)",
+        f"total {total_min//60}h{total_min%60:02d}   "
+        f"HR {hr_min}–{hr_max} avg {hr_avg}{trim_note}\n"
+        f"recorded: deep {rec_deep}m · light {rec_light}m · awake {rec_awake}m     "
+        f"restaged (v0.3.1): deep {new_deep_min}m ({new_deep_min * 100 // total_min}%)",
         color="#e8e8f0", fontsize=11, y=0.98)
 
     # --- HR panel ---
