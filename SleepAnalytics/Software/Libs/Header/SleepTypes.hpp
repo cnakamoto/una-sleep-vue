@@ -31,6 +31,17 @@ constexpr uint8_t  kDeepMaxWindowMove   = 2;
 // the window closes. Extended if too few samples (restless onset).
 constexpr uint32_t kBaselineWindowSec   = 90 * 60;
 constexpr uint16_t kBaselineMinEpochs   = 30;
+// Auto-wake: close the session when wakefulness is sustained. Rule
+// validated offline against real nights (fires ~10 min after getting
+// up; never on bathroom trips or restless patches): at least
+// kWakeMinActiveEpochs epochs with any motion in the trailing
+// kWakeWindowEpochs epochs, after a settle-in grace, and only once
+// real stillness has been seen (so "started but never slept" evenings
+// can't auto-save a junk night).
+constexpr uint16_t kWakeWindowEpochs    = 20;   // trailing 10 min
+constexpr uint8_t  kWakeMinActiveEpochs = 16;
+constexpr uint32_t kWakeMinSessionMin   = 60;
+constexpr uint16_t kWakeMinQuietEpochs  = 60;
 // Safety aborts while TRACKING.
 constexpr uint8_t  kBatteryAbortPct     = 8;
 constexpr uint32_t kUnwornAbortSec      = 30 * 60;
@@ -92,6 +103,7 @@ namespace Flags {
 constexpr uint8_t kAbortedUnworn  = 0x01;
 constexpr uint8_t kAbortedBattery = 0x02;
 constexpr uint8_t kInterrupted    = 0x04;
+constexpr uint8_t kAutoWake       = 0x08;
 }
 
 // ---- Night index: slp_idx.bin ---------------------------------------

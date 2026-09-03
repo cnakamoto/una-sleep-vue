@@ -50,6 +50,11 @@ Service::Service(SDK::Kernel& kernel)
     , mMoveWindowIdx(0)
     , mMoveWindowCount(0)
     , mMoveWindowSum(0)
+    , mWakeWindow{}
+    , mWakeWindowIdx(0)
+    , mWakeWindowCount(0)
+    , mWakeActiveSum(0)
+    , mQuietEpochs(0)
     , mEpochBufCount(0)
     , mFlushedEpochs(0)
     , mAwakeEpochs(0)
@@ -252,6 +257,11 @@ void Service::startTracking()
     mMoveWindowIdx = 0;
     mMoveWindowCount = 0;
     mMoveWindowSum = 0;
+    memset(mWakeWindow, 0, sizeof(mWakeWindow));
+    mWakeWindowIdx = 0;
+    mWakeWindowCount = 0;
+    mWakeActiveSum = 0;
+    mQuietEpochs = 0;
     mEpochBufCount = 0;
     mFlushedEpochs = 0;
     mAwakeEpochs = mLightEpochs = mDeepEpochs = 0;
@@ -326,6 +336,18 @@ void Service::closeEpochsIfDue()
         closeCurrentEpoch();
         mNextEpochCloseMs += Sleep::Config::kEpochSec * 1000;
     }
+
+    // Auto-wake: sustained motion in the trailing window, after the
+    // settle-in grace, and only if real stillness was seen this session.
+    if (mState == CustomMessage::TrackingState::TRACKING
+            && mWakeWindowCount >= Sleep::Config::kWakeWindowEpochs
+            && mQuietEpochs >= Sleep::Config::kWakeMinQuietEpochs
+            && now - mSessionStartMs >= Sleep::Config::kWakeMinSessionMin * 60000
+            && mWakeActiveSum >= Sleep::Config::kWakeMinActiveEpochs) {
+        LOG_INFO("auto-wake: closing session\n");
+        mCloseFlags |= Sleep::Flags::kAutoWake;
+        stopTracking();
+    }
 }
 
 void Service::closeCurrentEpoch()
@@ -350,6 +372,25 @@ void Service::closeCurrentEpoch()
             mMoveWindowSum += mv;
         }
         ++mMoveWindowIdx;
+    }
+
+    // Auto-wake window: per-epoch 0/1 "any motion", plus quiet tally.
+    {
+        uint8_t active = mEpochMovement > 0 ? 1 : 0;
+        uint16_t idx = mWakeWindowIdx % Sleep::Config::kWakeWindowEpochs;
+        if (mWakeWindowCount < Sleep::Config::kWakeWindowEpochs) {
+            mWakeWindow[idx] = active;
+            mWakeActiveSum += active;
+            ++mWakeWindowCount;
+        } else {
+            mWakeActiveSum -= mWakeWindow[idx];
+            mWakeWindow[idx] = active;
+            mWakeActiveSum += active;
+        }
+        ++mWakeWindowIdx;
+        if (mEpochMovement == 0) {
+            ++mQuietEpochs;
+        }
     }
 
     Sleep::Stage stage = classifyEpoch(mEpochMovement, hrMean);

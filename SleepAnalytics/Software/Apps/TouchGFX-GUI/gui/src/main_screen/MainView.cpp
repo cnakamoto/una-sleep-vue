@@ -157,6 +157,7 @@ void MainView::render()
         if (mSummary.flags & Sleep::Flags::kAbortedUnworn) endNote = "END: UNWORN";
         else if (mSummary.flags & Sleep::Flags::kAbortedBattery) endNote = "END: BATTERY";
         else if (mSummary.flags & Sleep::Flags::kInterrupted) endNote = "END: PWR OFF";
+        else if (mSummary.flags & Sleep::Flags::kAutoWake) endNote = "END: AUTO-WAKE";
 
         if (mSummary.hrMin > 0) {
             touchgfx::Unicode::snprintf(

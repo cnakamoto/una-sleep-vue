@@ -66,6 +66,15 @@ private:
     uint16_t                 mMoveWindowCount;
     uint16_t                 mMoveWindowSum;
 
+    // Auto-wake: ring of per-epoch 0/1 "any motion" flags over the
+    // trailing kWakeWindowEpochs epochs, plus a total-quiet counter
+    // proving real stillness was seen during this session.
+    uint8_t                  mWakeWindow[Sleep::Config::kWakeWindowEpochs];
+    uint16_t                 mWakeWindowIdx;
+    uint16_t                 mWakeWindowCount;
+    uint16_t                 mWakeActiveSum;
+    uint16_t                 mQuietEpochs;
+
     // Buffered, not-yet-flushed epoch records
     Sleep::EpochRecord       mEpochBuf[Sleep::Config::kFlushEveryEpochs];
     uint16_t                 mEpochBufCount;
