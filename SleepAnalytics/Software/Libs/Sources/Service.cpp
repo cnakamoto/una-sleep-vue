@@ -43,9 +43,13 @@ Service::Service(SDK::Kernel& kernel)
     , mEpochMovement(0)
     , mEpochHrSum(0)
     , mEpochHrCount(0)
-    , mStillEpochs(0)
     , mBaselineCount(0)
     , mBaselineBpm(0)
+    , mBaselineWindowOpen(true)
+    , mMoveWindow{}
+    , mMoveWindowIdx(0)
+    , mMoveWindowCount(0)
+    , mMoveWindowSum(0)
     , mEpochBufCount(0)
     , mFlushedEpochs(0)
     , mAwakeEpochs(0)
@@ -241,9 +245,13 @@ void Service::startTracking()
     mEpochMovement = 0;
     mEpochHrSum = 0;
     mEpochHrCount = 0;
-    mStillEpochs = 0;
     mBaselineCount = 0;
     mBaselineBpm = 0;
+    mBaselineWindowOpen = true;
+    memset(mMoveWindow, 0, sizeof(mMoveWindow));
+    mMoveWindowIdx = 0;
+    mMoveWindowCount = 0;
+    mMoveWindowSum = 0;
     mEpochBufCount = 0;
     mFlushedEpochs = 0;
     mAwakeEpochs = mLightEpochs = mDeepEpochs = 0;
@@ -327,27 +335,46 @@ void Service::closeCurrentEpoch()
         hrMean = static_cast<uint8_t>(mEpochHrSum / mEpochHrCount);
     }
 
-    Sleep::Stage stage = classifyEpoch(mEpochMovement, hrMean);
-
-    // Baseline: median of still-epoch HR means, insertion-sorted.
-    if (mEpochMovement == 0 && hrMean > 0
-            && mBaselineCount < Sleep::Config::kBaselineMaxSamples) {
-        uint16_t i = mBaselineCount;
-        while (i > 0 && mStillHr[i - 1] > hrMean) {
-            mStillHr[i] = mStillHr[i - 1];
-            --i;
+    // Rolling movement window first, so the current epoch is inside its
+    // own trailing-20-min window when classified.
+    {
+        uint8_t mv = mEpochMovement > 10 ? 10 : mEpochMovement;
+        uint16_t idx = mMoveWindowIdx % Sleep::Config::kDeepWindowEpochs;
+        if (mMoveWindowCount < Sleep::Config::kDeepWindowEpochs) {
+            mMoveWindow[idx] = mv;
+            mMoveWindowSum += mv;
+            ++mMoveWindowCount;
+        } else {
+            mMoveWindowSum -= mMoveWindow[idx];
+            mMoveWindow[idx] = mv;
+            mMoveWindowSum += mv;
         }
-        mStillHr[i] = hrMean;
-        ++mBaselineCount;
-        if (mBaselineCount >= Sleep::Config::kBaselineMinEpochs) {
-            mBaselineBpm = mStillHr[mBaselineCount / 2];
-        }
+        ++mMoveWindowIdx;
     }
 
-    if (mEpochMovement == 0) {
-        ++mStillEpochs;
-    } else {
-        mStillEpochs = 0;
+    Sleep::Stage stage = classifyEpoch(mEpochMovement, hrMean);
+
+    // Baseline: median of still-epoch HR means from the first
+    // kBaselineWindowSec of the session, then frozen. A restless onset
+    // (too few samples when the window would close) extends it.
+    if (mBaselineWindowOpen) {
+        uint32_t now = mKernel.sys.getTimeMs();
+        if (now - mSessionStartMs >= Sleep::Config::kBaselineWindowSec * 1000
+                && mBaselineCount >= Sleep::Config::kBaselineMinEpochs) {
+            mBaselineWindowOpen = false; // freeze with what we have
+        } else if (mEpochMovement == 0 && hrMean > 0
+                   && mBaselineCount < Sleep::Config::kBaselineMaxSamples) {
+            uint16_t i = mBaselineCount;
+            while (i > 0 && mStillHr[i - 1] > hrMean) {
+                mStillHr[i] = mStillHr[i - 1];
+                --i;
+            }
+            mStillHr[i] = hrMean;
+            ++mBaselineCount;
+            if (mBaselineCount >= Sleep::Config::kBaselineMinEpochs) {
+                mBaselineBpm = mStillHr[mBaselineCount / 2];
+            }
+        }
     }
 
     switch (stage) {
@@ -382,7 +409,8 @@ Sleep::Stage Service::classifyEpoch(uint8_t movement, uint8_t hrMean) const
         return Sleep::Stage::AWAKE;
     }
     if (mBaselineBpm > 0 && hrMean > 0
-            && mStillEpochs >= Sleep::Config::kDeepMinStillEpochs
+            && mMoveWindowCount >= Sleep::Config::kDeepWindowEpochs
+            && mMoveWindowSum <= Sleep::Config::kDeepMaxWindowMove
             && static_cast<uint16_t>(hrMean) * 100
                <= static_cast<uint16_t>(mBaselineBpm) * (100 - Sleep::Config::kDeepHrDropPct)) {
         return Sleep::Stage::DEEP;

@@ -21,9 +21,15 @@ constexpr uint32_t kEpochSec            = 30;
 constexpr uint8_t  kAwakeMovementCount  = 3;
 // DEEP needs HR at least this far below baseline (run 3 showed a 23% dip).
 constexpr uint8_t  kDeepHrDropPct       = 10;
-// ... sustained for this many consecutive still epochs (20 min).
-constexpr uint16_t kDeepMinStillEpochs  = 40;
-// Baseline becomes valid after this many still epochs with HR (15 min).
+// ... and at most this many motion events in the trailing 20 min
+// (rolling window — position shifts must not reset deep, but real
+// restlessness must block it). Window length in epochs:
+constexpr uint16_t kDeepWindowEpochs    = 40;
+constexpr uint8_t  kDeepMaxWindowMove   = 2;
+// Baseline = median HR of still epochs during the first kBaselineWindowSec
+// of the session (§5: "first-hour median while motionless"), frozen when
+// the window closes. Extended if too few samples (restless onset).
+constexpr uint32_t kBaselineWindowSec   = 90 * 60;
 constexpr uint16_t kBaselineMinEpochs   = 30;
 // Safety aborts while TRACKING.
 constexpr uint8_t  kBatteryAbortPct     = 8;

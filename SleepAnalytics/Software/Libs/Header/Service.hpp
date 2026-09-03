@@ -54,10 +54,17 @@ private:
     uint8_t                  mEpochHrCount;
 
     // Staging state
-    uint16_t                 mStillEpochs;
     uint16_t                 mBaselineCount;
     uint8_t                  mBaselineBpm;   // 0 = not valid yet
+    bool                     mBaselineWindowOpen;
     uint8_t                  mStillHr[Sleep::Config::kBaselineMaxSamples];
+
+    // Rolling movement window for the DEEP gate (ring of per-epoch
+    // movement counts; sum covers the last kDeepWindowEpochs epochs).
+    uint8_t                  mMoveWindow[Sleep::Config::kDeepWindowEpochs];
+    uint16_t                 mMoveWindowIdx;
+    uint16_t                 mMoveWindowCount;
+    uint16_t                 mMoveWindowSum;
 
     // Buffered, not-yet-flushed epoch records
     Sleep::EpochRecord       mEpochBuf[Sleep::Config::kFlushEveryEpochs];
