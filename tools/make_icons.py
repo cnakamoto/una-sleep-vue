@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the SleepAnalytics app icons (Zz glyph, diagonally offset).
+"""Generate the SleepVue app icons (Zz glyph, diagonally offset).
 
 Renders Resources/icon_60x60.png and Resources/icon_30x30.png using the
 project's Poppins-SemiBold. Run with the project .venv python (Pillow).
@@ -7,8 +7,8 @@ project's Poppins-SemiBold. Run with the project .venv python (Pillow).
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-FONT = "SleepAnalytics/Software/Apps/TouchGFX-GUI/assets/fonts/Poppins-SemiBold.ttf"
-OUT_DIR = "SleepAnalytics/Resources"
+FONT = "SleepVue/Software/Apps/TouchGFX-GUI/assets/fonts/Poppins-SemiBold.ttf"
+OUT_DIR = "SleepVue/Resources"
 
 # Soft blue-white — reads clearly on the watch's dark menu, sleep-flavored
 INK = (205, 220, 255, 255)

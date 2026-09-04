@@ -13,4 +13,4 @@ nights/
 .DS_Store
 
 # App build output
-SleepAnalytics/build/
+SleepVue/build/

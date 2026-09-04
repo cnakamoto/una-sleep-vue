@@ -3,13 +3,13 @@ cmake_minimum_required(VERSION 3.21)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/build")
 
 # App configuration
-set(APP_NAME "SleepAnalytics")
+set(APP_NAME "SleepVue")
 set(APP_TYPE "Utility")
 set(DEV_ID "UNA")
 set(APP_ID "4F2CE6CCAA9F1140")
-# Pinned version (stock-style X.Y.Z -> SleepAnalytics_0.1.0.uapp); must stay
+# Pinned version (stock-style X.Y.Z -> SleepVue_X.Y.Z.uapp); must stay
 # semver-clean — the watch app menu is picky about what it lists.
-set(BUILD_VERSION "0.6.0")
+set(BUILD_VERSION "0.7.0")
 # Probe phase: service must start at watch boot and stay resident overnight
 # (same always-on pattern as the SDK's Alarm example).
 set(APP_AUTOSTART On)

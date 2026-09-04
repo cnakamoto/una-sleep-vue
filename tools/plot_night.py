@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot a SleepAnalytics night file (slp_YYYYMMDD.bin).
+"""Plot a SleepVue night file (slp_YYYYMMDD.bin).
 
 Panels: heart rate (baseline + DEEP gate), recorded hypnogram, hypnogram
 restaged with the current algorithm, movement.
@@ -147,7 +147,7 @@ def main():
     trim_note = (f"   (trimmed from {trimmed_from:%H:%M} manual stop)"
                  if trimmed_from else "")
     fig.suptitle(
-        f"SleepAnalytics — night of {date_key}   {ts[0]:%a %H:%M} → {ts[-1]:%a %H:%M}   "
+        f"SleepVue — night of {date_key}   {ts[0]:%a %H:%M} → {ts[-1]:%a %H:%M}   "
         f"total {total_min//60}h{total_min%60:02d}   "
         f"HR {hr_min}–{hr_max} avg {hr_avg}{trim_note}\n"
         f"recorded: deep {rec_deep}m · light {rec_light}m · awake {rec_awake}m     "

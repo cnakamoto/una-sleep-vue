@@ -1,4 +1,4 @@
-# SleepAnalytics — Architecture Sketch
+# SleepVue — Architecture Sketch
 
 Status: **draft / sketch** — no sleep code exists yet; the app is the stock
 HelloWorld skeleton. (The original tutorial doc is preserved in git history
@@ -95,7 +95,7 @@ Classic actigraphy + HR, 30-second epochs:
 One file per night + a small index. Binary, fixed-layout, versioned:
 
 ```
-/SleepAnalytics/
+/SleepVue/
     index.bin            # ring of session headers (last 14 nights)
     night_YYYYMMDD.bin   # header + packed epoch records
 ```
@@ -177,7 +177,7 @@ the log and pushes a `ProbeStats` summary; the main screen shows span,
 boots, stops, alive count, HR samples, longest gap, battery first>last,
 and current service uptime.
 
-**Deploy** — install `SleepAnalytics/Output/SleepAnalytics_0.1.0.uapp`
+**Deploy** — install `SleepVue/Output/SleepVue_0.1.0.uapp`
 via the companion app, then reboot the watch (so the autostart path is
 what launches the service — not an app open). Wear it overnight.
 
@@ -190,7 +190,7 @@ what launches the service — not an app open). Wear it overnight.
   where the service (or its sensors) went silent.
 - `BATT 100>91` → 9 %/night at HR 0.1 Hz ≈ acceptable; much more and the
   sensor plan in §4 needs re-thinking before any staging work.
-- Raw data: pull `probe.csv` over BLE FTS (`/Apps/SleepAnalytics/` area)
+- Raw data: pull `probe.csv` over BLE FTS (`/Apps/SleepVue/` area)
   for per-sample analysis if the summary raises questions.
 
 ### Probe run 1 (2026-08-31 → 09-01): autostart did NOT fire

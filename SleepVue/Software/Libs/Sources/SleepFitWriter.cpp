@@ -121,7 +121,7 @@ bool SleepFitWriter::exportNight(SDK::Kernel& kernel, const Sleep::SessionHeader
          fit::field::DeveloperDataId::DeveloperDataIndex});
     {
         uint8_t appId[16] = {};
-        std::strncpy(reinterpret_cast<char*>(appId), "SleepAnalytics", sizeof(appId));
+        std::strncpy(reinterpret_cast<char*>(appId), "SleepVue", sizeof(appId));
         w.data(L_DEV_ID).bytes(appId, sizeof(appId)).u8(0).write();
     }
     {

@@ -145,7 +145,7 @@ struct IndexHeader {
 };
 static_assert(sizeof(IndexHeader) == 12, "index header must stay 12 bytes");
 
-// File names (app-private dir; see deploy layout /Apps/SleepAnalytics/).
+// File names (app-private dir; see deploy layout /Apps/SleepVue/).
 constexpr const char* kCurrentFile = "slp_cur.bin";   // session in progress
 constexpr const char* kLastFile    = "slp_last.bin";  // most recent closed night
 constexpr const char* kIndexFile   = "slp_idx.bin";   // night index ring
