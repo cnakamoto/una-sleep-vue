@@ -26,6 +26,11 @@ final class AppState: ObservableObject {
     @Published private(set) var healthExportEnabled: Bool
     @Published private(set) var healthNote = ""
 
+    // Prune: DELETE archived nights from the watch once they're verified on
+    // the phone. Off by default — destructive. On-watch summaries/history
+    // are unaffected (the GUI reads slp_last/slp_idx, never the archives).
+    @Published private(set) var pruneAfterSync: Bool
+
     /// SleepVue stores its nights in its app-private dir, visible over FTS here.
     static let watchDir = "/Apps/SleepVue"
 
@@ -35,6 +40,7 @@ final class AppState: ObservableObject {
 
     private static let healthEnabledKey = "sleepvue.healthExportEnabled"
     private static let healthExportedKey = "sleepvue.healthExportedDateKeys"
+    private static let pruneEnabledKey = "sleepvue.pruneAfterSync"
 
     /// dateKeys (as strings) already pushed to HealthKit. Local marker only —
     /// the sync identifiers make Health-side duplicates impossible anyway.
@@ -45,6 +51,7 @@ final class AppState: ObservableObject {
 
     init() {
         healthExportEnabled = UserDefaults.standard.bool(forKey: Self.healthEnabledKey)
+        pruneAfterSync = UserDefaults.standard.bool(forKey: Self.pruneEnabledKey)
         // Surface FTSClient's @Published changes through AppState so views
         // only need to observe one object.
         client.objectWillChange
@@ -113,19 +120,41 @@ final class AppState: ObservableObject {
                 downloaded.append(night)
             }
 
-            progressLabel = newFiles.isEmpty ? "Up to date" : "Synced \(newFiles.count) night(s)"
+            var summary = newFiles.isEmpty ? "Up to date" : "Synced \(newFiles.count) night(s)"
+            progressLabel = summary
             progress = 1
             reloadLocal()
 
             if healthExportEnabled, !downloaded.isEmpty {
                 progressLabel = "Writing to Apple Health…"
                 await exportToHealth(downloaded)
-                progressLabel = newFiles.isEmpty ? "Up to date" : "Synced \(newFiles.count) night(s)"
             }
+
+            // Prune AFTER the data is verified locally and pushed to Health.
+            var pruned = 0
+            if pruneAfterSync {
+                for night in downloaded {
+                    let path = Self.watchDir + "/slp_\(night.header.dateKey).bin"
+                    do {
+                        try await client.deleteFile(path)
+                        pruned += 1
+                    } catch {
+                        // Per-file failure is logged in the BLE debug log;
+                        // the file simply stays on the watch.
+                    }
+                }
+                if pruned > 0 { summary += " · deleted \(pruned) from watch" }
+            }
+            progressLabel = summary
         } catch {
             errorMessage = describe(error)
             progressLabel = ""
         }
+    }
+
+    func setPrune(_ enabled: Bool) {
+        pruneAfterSync = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.pruneEnabledKey)
     }
 
     /// Toggle from the UI. Enabling asks for HealthKit write access and

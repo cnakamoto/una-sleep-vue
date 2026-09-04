@@ -45,6 +45,8 @@ final class FTSClient: NSObject, ObservableObject {
     private var peripheral: CBPeripheral?
     private var rawChar: CBCharacteristic?
     private var versionChar: CBCharacteristic?
+    private var currentTimeChar: CBCharacteristic?
+    private var localTimeInfoChar: CBCharacteristic?
 
     // Connect pipeline continuations.
     private var discoveryCont: CheckedContinuation<CBPeripheral, Error>?
@@ -54,11 +56,12 @@ final class FTSClient: NSObject, ObservableObject {
     private var connectTimeoutTask: Task<Void, Never>?
 
     // In-flight FTS operation (at most one).
-    private enum OpKind { case listDir, read, digest }
+    private enum OpKind { case listDir, read, digest, delete }
     private var opKind: OpKind?
     private var listCont: CheckedContinuation<[FTSEntry], Error>?
     private var readCont: CheckedContinuation<Data, Error>?
     private var digestCont: CheckedContinuation<FTSDigest, Error>?
+    private var deleteCont: CheckedContinuation<Void, Error>?
 
     // LISTDIR / READ accumulators.
     private var entries: [FTSEntry] = []
@@ -73,6 +76,10 @@ final class FTSClient: NSObject, ObservableObject {
     private static let serviceUUID = CBUUID(string: FTS.serviceUUIDString)
     private static let versionUUID = CBUUID(string: FTS.versionUUIDString)
     private static let rawUUID = CBUUID(string: FTS.rawTransferUUIDString)
+    // Current Time Service (BLE-Services-Overview.md) — phone → watch time sync.
+    private static let ctsServiceUUID = CBUUID(string: "1805")
+    private static let currentTimeUUID = CBUUID(string: "2A2B")
+    private static let localTimeInfoUUID = CBUUID(string: "2A0F")
     /// All services the watch is known to expose (BLE-Services-Overview.md) —
     /// used to find it among system-connected peripherals.
     private static let knownServiceUUIDs = [
@@ -244,6 +251,15 @@ final class FTSClient: NSObject, ObservableObject {
         }
     }
 
+    /// DELETE a file on the watch.
+    func deleteFile(_ path: String) async throws {
+        try beginOp(.delete)
+        return try await withCheckedThrowingContinuation { cont in
+            deleteCont = cont
+            writeRaw(FTSPacket.makeDelete(path: path))
+        }
+    }
+
     // MARK: - Operation plumbing
 
     private func beginOp(_ kind: OpKind) throws {
@@ -278,15 +294,17 @@ final class FTSClient: NSObject, ObservableObject {
         listCont = nil
         readCont = nil
         digestCont = nil
+        deleteCont = nil
         readProgress = nil
     }
 
     private func failPending(_ error: Error) {
-        let list = listCont, read = readCont, digest = digestCont
+        let list = listCont, read = readCont, digest = digestCont, delete = deleteCont
         finishOp()
         list?.resume(throwing: error)
         read?.resume(throwing: error)
         digest?.resume(throwing: error)
+        delete?.resume(throwing: error)
     }
 
     // MARK: - Debug log
@@ -360,9 +378,9 @@ final class FTSClient: NSObject, ObservableObject {
     private func handleConnect() {
         guard let peripheral else { return }
         phase = .handshaking
-        log("link up — discovering FTS service")
+        log("link up — discovering services")
         peripheral.delegate = self
-        peripheral.discoverServices([Self.serviceUUID])
+        peripheral.discoverServices([Self.serviceUUID, Self.ctsServiceUUID])
     }
 
     private func handleServicesDiscovered(_ p: CBPeripheral, _ error: Error?) {
@@ -373,14 +391,23 @@ final class FTSClient: NSObject, ObservableObject {
         }
         log("FTS service found")
         p.discoverCharacteristics([Self.versionUUID, Self.rawUUID], for: service)
+        if let cts = p.services?.first(where: { $0.uuid == Self.ctsServiceUUID }) {
+            p.discoverCharacteristics([Self.currentTimeUUID, Self.localTimeInfoUUID], for: cts)
+        }
     }
 
-    private func handleCharacteristicsDiscovered(_ p: CBPeripheral, _ error: Error?) {
+    private func handleCharacteristicsDiscovered(_ p: CBPeripheral, service: CBService, _ error: Error?) {
         if let error { failConnect(error); return }
-        guard let service = p.services?.first(where: { $0.uuid == Self.serviceUUID }) else {
-            failConnect(FTSError.serviceNotFound)
+
+        // Current Time Service — optional, best-effort clock sync on connect.
+        if service.uuid == Self.ctsServiceUUID {
+            currentTimeChar = service.characteristics?.first(where: { $0.uuid == Self.currentTimeUUID })
+            localTimeInfoChar = service.characteristics?.first(where: { $0.uuid == Self.localTimeInfoUUID })
+            if currentTimeChar != nil { log("CTS found — will sync clock on ready") }
             return
         }
+
+        guard service.uuid == Self.serviceUUID else { return }
         rawChar = service.characteristics?.first(where: { $0.uuid == Self.rawUUID })
         versionChar = service.characteristics?.first(where: { $0.uuid == Self.versionUUID })
         guard let rawChar else { failConnect(FTSError.serviceNotFound); return }
@@ -411,6 +438,7 @@ final class FTSClient: NSObject, ObservableObject {
                 UserDefaults.standard.set(peripheral.identifier.uuidString,
                                           forKey: Self.savedIdentifierKey)
             }
+            syncClock()
             let cont = connectCont
             connectCont = nil
             cont?.resume()
@@ -427,7 +455,59 @@ final class FTSClient: NSObject, ObservableObject {
         case (.read, .readData): handleReadData(data)
         case (.listDir, .listDirEntry): handleListDirEntry(data)
         case (.digest, .digestStatus): handleDigestStatus(data)
+        case (.delete, .deleteStatus): handleDeleteStatus(data)
         default: break // stale/duplicate notification — ignore
+        }
+    }
+
+    // MARK: - Current Time Service (best-effort clock sync)
+
+    private func syncClock() {
+        guard let peripheral else { return }
+        if let currentTimeChar {
+            peripheral.writeValue(Self.currentTimePacket(), for: currentTimeChar, type: .withResponse)
+        }
+        if let localTimeInfoChar {
+            peripheral.writeValue(Self.localTimeInfoPacket(), for: localTimeInfoChar, type: .withResponse)
+        }
+    }
+
+    /// SIG Current Time: year(2 LE), month, day, hour, minute, second,
+    /// dayOfWeek (1=Mon…7=Sun), fractions256, adjustReason — local wall clock.
+    private static func currentTimePacket(now: Date = Date()) -> Data {
+        let c = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second, .weekday], from: now)
+        var d = Data()
+        d.appendLE16(UInt16(c.year ?? 0))
+        d.append(UInt8(c.month ?? 0))
+        d.append(UInt8(c.day ?? 0))
+        d.append(UInt8(c.hour ?? 0))
+        d.append(UInt8(c.minute ?? 0))
+        d.append(UInt8(c.second ?? 0))
+        // Calendar.weekday: 1=Sun…7=Sat → SIG: 1=Mon…7=Sun
+        d.append(UInt8(((c.weekday ?? 2) + 5) % 7 + 1))
+        d.append(0)    // fractions256
+        d.append(0x02) // adjust reason: external reference time update
+        return d
+    }
+
+    /// SIG Local Time Information: time zone (15-min increments, signed),
+    /// DST offset (0=standard, 2=+30m, 4=+1h, 8=+2h).
+    private static func localTimeInfoPacket(now: Date = Date()) -> Data {
+        let tz = TimeZone.current
+        let quarters = Int8(clamping: tz.secondsFromGMT(for: now) / 900)
+        let dstMinutes = Int(tz.daylightSavingTimeOffset(for: now) / 60)
+        let dstField: UInt8 = dstMinutes <= 0 ? 0 : (dstMinutes <= 30 ? 2 : (dstMinutes <= 60 ? 4 : 8))
+        return Data([UInt8(bitPattern: quarters), dstField])
+    }
+
+    private func handleWriteConfirmation(_ characteristic: CBCharacteristic, _ error: Error?) {
+        guard characteristic.uuid == Self.currentTimeUUID
+            || characteristic.uuid == Self.localTimeInfoUUID else { return }
+        if let error {
+            log("CTS write failed: \(error.localizedDescription)")
+        } else {
+            log("clock synced to watch")
         }
     }
 
@@ -524,6 +604,22 @@ final class FTSClient: NSObject, ObservableObject {
         cont?.resume(returning: digest)
     }
 
+    private func handleDeleteStatus(_ data: Data) {
+        guard let status = FTSPacket.parseSimpleStatus(data, expected: .deleteStatus) else {
+            failPending(FTSError.malformedResponse)
+            return
+        }
+        guard status == .ok else {
+            log("DELETE rejected (status \(status.rawValue))")
+            failPending(FTSError.watchRejected(status))
+            return
+        }
+        log("DELETE ok")
+        let cont = deleteCont
+        finishOp()
+        cont?.resume()
+    }
+
     // MARK: - Failure / disconnect
 
     private func failConnect(_ error: Error) {
@@ -545,6 +641,8 @@ final class FTSClient: NSObject, ObservableObject {
     private func settleDisconnected() {
         rawChar = nil
         versionChar = nil
+        currentTimeChar = nil
+        localTimeInfoChar = nil
         peripheral = nil
         protocolVersion = 0
         if phase != .idle { phase = .idle }
@@ -587,7 +685,11 @@ extension FTSClient: CBPeripheralDelegate {
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        Task { @MainActor in self.handleCharacteristicsDiscovered(peripheral, error) }
+        Task { @MainActor in self.handleCharacteristicsDiscovered(peripheral, service: service, error) }
+    }
+
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        Task { @MainActor in self.handleWriteConfirmation(characteristic, error) }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {

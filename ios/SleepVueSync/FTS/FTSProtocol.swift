@@ -143,6 +143,15 @@ enum FTSPacket {
         return d
     }
 
+    // DELETE 0x30: {cmd, reserved, pathLength(2)} + path
+    static func makeDelete(path: String) -> Data {
+        var d = Data([FTS.Command.delete.rawValue, 0])
+        let p = Data(path.utf8)
+        d.appendLE16(UInt16(p.count))
+        d.append(p)
+        return d
+    }
+
     // READ_DATA 0x11: {cmd, status, reserved(2), chunkOffset(4), totalLength(4), chunkLength(4), data}
     static func parseReadData(_ d: Data) -> FTSReadChunk? {
         guard d.count >= 16, d.first == FTS.Command.readData.rawValue,
@@ -178,6 +187,12 @@ enum FTSPacket {
         guard d.count >= 12, d.first == FTS.Command.digestStatus.rawValue,
               let status = FTS.Status(rawValue: d[1]) else { return nil }
         return FTSDigest(status: status, fileSize: d.leU32(at: 4), crc32: d.leU32(at: 8))
+    }
+
+    /// Minimal {cmd, status} responses (DELETE 0x31, MKDIR 0x41, MOVE 0x61).
+    static func parseSimpleStatus(_ d: Data, expected cmd: FTS.Command) -> FTS.Status? {
+        guard d.count >= 2, d.first == cmd.rawValue else { return nil }
+        return FTS.Status(rawValue: d[1])
     }
 }
 

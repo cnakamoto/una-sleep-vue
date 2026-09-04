@@ -36,6 +36,17 @@ struct ContentView: View {
                     }
                 }
 
+                Section {
+                    Toggle("Delete from watch after sync", isOn: Binding(
+                        get: { state.pruneAfterSync },
+                        set: { state.setPrune($0) }
+                    ))
+                } header: {
+                    Text("Watch")
+                } footer: {
+                    Text("Archived nights are removed from the watch only after a verified transfer. The watch keeps its own on-device summaries and history.")
+                }
+
                 Section("Synced nights") {
                     if state.nights.isEmpty {
                         Text("No nights yet. Connect and sync to pull sleep data from your watch.")

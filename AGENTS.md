@@ -7,7 +7,8 @@ to `una-sdk/` (gitignored), build via `source env.sh` + cmake/make in
 design doc — keep it current when behavior changes.
 
 iPhone companion app: `ios/` (SwiftUI; BLE FTS sync per
-`una-sdk/Docs/BLE-File-Transfer-Service.md`, write-only HealthKit export).
+`una-sdk/Docs/BLE-File-Transfer-Service.md`, CTS clock write on connect,
+opt-in DELETE-after-sync prune, write-only HealthKit export).
 Key facts: watch discovery must go through
 `retrieveConnectedPeripherals` (iOS holds an ANCS link, so the watch
 never advertises); SLP1 parser changes must keep passing
