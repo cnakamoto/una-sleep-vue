@@ -73,6 +73,16 @@ final class FTSClient: NSObject, ObservableObject {
     private static let serviceUUID = CBUUID(string: FTS.serviceUUIDString)
     private static let versionUUID = CBUUID(string: FTS.versionUUIDString)
     private static let rawUUID = CBUUID(string: FTS.rawTransferUUIDString)
+    /// All services the watch is known to expose (BLE-Services-Overview.md) —
+    /// used to find it among system-connected peripherals.
+    private static let knownServiceUUIDs = [
+        CBUUID(string: FTS.serviceUUIDString),
+        CBUUID(string: "180A"), // Device Information
+        CBUUID(string: "180F"), // Battery
+        CBUUID(string: "1805"), // Current Time
+        CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"), // Nordic UART
+    ]
+    private static let savedIdentifierKey = "sleepvue.lastWatchIdentifier"
 
     override init() {
         super.init()
@@ -81,14 +91,50 @@ final class FTSClient: NSObject, ObservableObject {
 
     // MARK: - Public API
 
-    /// Scan → connect → discover FTS → enable notifications → read protocol
-    /// version. Resolves when the client is `.ready`. Times out after
-    /// 20 s of scanning with no match, or 30 s of stalled connect/handshake.
+    /// Find the watch → connect → discover FTS → enable notifications → read
+    /// protocol version. Resolves when the client is `.ready`.
+    ///
+    /// Discovery tries, in order:
+    /// 1. the previously-connected watch, by saved identifier;
+    /// 2. peripherals the *system* is already connected to — crucial because
+    ///    iOS keeps an ANCS link to the watch for the official companion app,
+    ///    and a connected peripheral stops advertising, so scanning can never
+    ///    see it;
+    /// 3. a plain scan (FTS-filtered, then unfiltered + name match).
+    ///
+    /// Times out after 20 s of scanning with no match, or 30 s of stalled
+    /// connect/handshake.
     func connect() async throws {
         guard connectCont == nil, discoveryCont == nil else { throw FTSError.busy }
         if phase == .ready { return }
         phase = .starting
 
+        // Path 1: previously-paired watch — reconnect directly.
+        if let saved = UserDefaults.standard.string(forKey: Self.savedIdentifierKey),
+           let uuid = UUID(uuidString: saved) {
+            let matches = central.retrievePeripherals(withIdentifiers: [uuid])
+            if let known = matches.first {
+                log("reconnecting to known watch (\(known.name ?? uuid.uuidString))")
+                try await connectTo(known)
+                return
+            }
+            log("saved watch identifier no longer known to iOS — falling through")
+        }
+
+        // Path 2: system-connected peripherals (ANCS/official app holds the link).
+        let systemConnected = central.retrieveConnectedPeripherals(withServices: Self.knownServiceUUIDs)
+        for p in systemConnected {
+            log("system-connected peripheral: \(p.name ?? "?") (\(p.identifier.uuidString.prefix(8)))")
+        }
+        let candidate = systemConnected.first(where: { $0.name?.localizedCaseInsensitiveContains("una") ?? false })
+            ?? (systemConnected.count == 1 ? systemConnected.first : nil)
+        if let watch = candidate {
+            log("using system-connected watch — no scan needed")
+            try await connectTo(watch)
+            return
+        }
+
+        // Path 3: scan.
         let found: CBPeripheral = try await withCheckedThrowingContinuation { cont in
             discoveryCont = cont
             startScanIfPowered(filtered: true)
@@ -112,6 +158,11 @@ final class FTSClient: NSObject, ObservableObject {
             }
         }
 
+        try await connectTo(found)
+    }
+
+    /// Connect + FTS handshake for a peripheral chosen by any discovery path.
+    private func connectTo(_ found: CBPeripheral) async throws {
         scanFallbackTask?.cancel()
         scanTimeoutTask?.cancel()
         central.stopScan()
@@ -356,6 +407,10 @@ final class FTSClient: NSObject, ObservableObject {
             protocolVersion = data.leU32(at: 0)
             phase = .ready
             log("ready — FTS protocol v\(protocolVersion)")
+            if let peripheral {
+                UserDefaults.standard.set(peripheral.identifier.uuidString,
+                                          forKey: Self.savedIdentifierKey)
+            }
             let cont = connectCont
             connectCont = nil
             cont?.resume()
