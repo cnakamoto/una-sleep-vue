@@ -151,7 +151,7 @@ def main():
         f"total {total_min//60}h{total_min%60:02d}   "
         f"HR {hr_min}–{hr_max} avg {hr_avg}{trim_note}\n"
         f"recorded: deep {rec_deep}m · light {rec_light}m · awake {rec_awake}m     "
-        f"restaged (v0.3.1): deep {new_deep_min}m ({new_deep_min * 100 // total_min}%)",
+        f"restaged: deep {new_deep_min}m ({new_deep_min * 100 // total_min}%)",
         color="#e8e8f0", fontsize=11, y=0.98)
 
     # --- HR panel ---
@@ -174,10 +174,10 @@ def main():
 
     # --- hypnograms ---
     draw_hypnogram(ax_hyp, ts, recorded)
-    ax_hyp.set_title("recorded on watch (v0.3.0 staging)", color="#9090a0",
+    ax_hyp.set_title("recorded on watch", color="#9090a0",
                      fontsize=9, loc="left", pad=2)
     draw_hypnogram(ax_new, ts, new_stages)
-    ax_new.set_title("restaged offline with the v0.3.1 fix (same epochs)",
+    ax_new.set_title("restaged offline (same epochs — regression check)",
                      color="#9090a0", fontsize=9, loc="left", pad=2)
     ax_new.legend(
         handles=[Patch(color=STAGE_COLOR[s], label=STAGE_NAME[s]) for s in (0, 1, 2)],
