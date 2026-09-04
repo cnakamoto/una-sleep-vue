@@ -24,6 +24,18 @@ struct ContentView: View {
                     }
                 }
 
+                Section("Apple Health") {
+                    Toggle("Write nights to Apple Health", isOn: Binding(
+                        get: { state.healthExportEnabled },
+                        set: { state.setHealthExport($0) }
+                    ))
+                    if !state.healthNote.isEmpty {
+                        Text(state.healthNote)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section("Synced nights") {
                     if state.nights.isEmpty {
                         Text("No nights yet. Connect and sync to pull sleep data from your watch.")

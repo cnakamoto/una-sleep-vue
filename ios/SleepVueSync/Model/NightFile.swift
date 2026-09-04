@@ -61,6 +61,13 @@ struct NightHeader: Equatable, Hashable {
     let flags: NightFlags
 }
 
+/// A maximal stretch of one stage — same computation as plot_night.py `runs()`.
+struct StageRun: Equatable, Hashable {
+    let start: Date
+    let end: Date
+    let stage: SleepStage
+}
+
 struct Night: Equatable, Hashable {
     let header: NightHeader
     let epochs: [SleepEpoch]
@@ -70,6 +77,22 @@ struct Night: Equatable, Hashable {
     /// Fall back to the end of the last epoch when the header has no wake yet.
     var wake: Date {
         header.wake ?? (epochs.last?.date.addingTimeInterval(30) ?? header.bed)
+    }
+
+    /// Maximal same-stage runs over the epochs (hypnogram, HealthKit export).
+    var stageRuns: [StageRun] {
+        guard !epochs.isEmpty else { return [] }
+        var runs: [StageRun] = []
+        var start = 0
+        for i in 1...epochs.count {
+            if i == epochs.count || epochs[i].stage != epochs[start].stage {
+                runs.append(StageRun(start: epochs[start].date,
+                                     end: epochs[i - 1].date.addingTimeInterval(30),
+                                     stage: epochs[start].stage))
+                start = i
+            }
+        }
+        return runs
     }
 
     // MARK: Epoch-derived stats (single source of truth — mirrors plot_night.py)

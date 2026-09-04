@@ -37,7 +37,7 @@ struct HypnogramView: View {
             guard t1 > t0, !night.epochs.isEmpty else { return }
 
             let bandHeight = size.height / 3
-            for run in stageRuns {
+            for run in night.stageRuns {
                 let x0 = (run.start.timeIntervalSince1970 - t0) / (t1 - t0) * size.width
                 let x1 = (run.end.timeIntervalSince1970 - t0) / (t1 - t0) * size.width
                 let rect = CGRect(x: x0,
@@ -51,22 +51,5 @@ struct HypnogramView: View {
         .background(Color(white: 0.1))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .accessibilityLabel("Hypnogram")
-    }
-
-    /// Maximal (start, end, stage) runs — same algorithm as plot_night.py `runs()`.
-    private var stageRuns: [(start: Date, end: Date, stage: SleepStage)] {
-        let epochs = night.epochs
-        guard !epochs.isEmpty else { return [] }
-        var result: [(Date, Date, SleepStage)] = []
-        var start = 0
-        for i in 1...epochs.count {
-            if i == epochs.count || epochs[i].stage != epochs[start].stage {
-                result.append((epochs[start].date,
-                               epochs[i - 1].date.addingTimeInterval(30),
-                               epochs[start].stage))
-                start = i
-            }
-        }
-        return result
     }
 }

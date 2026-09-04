@@ -17,6 +17,7 @@
 		AA0000000000000000000208 /* NightDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000108 /* NightDetailView.swift */; };
 		AA0000000000000000000209 /* HypnogramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000109 /* HypnogramView.swift */; };
 		AA000000000000000000020A /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010A /* Formatters.swift */; };
+		AA000000000000000000020B /* HealthKitExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010B /* HealthKitExporter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,8 @@
 		AA0000000000000000000108 /* NightDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightDetailView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000109 /* HypnogramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HypnogramView.swift; sourceTree = "<group>"; };
 		AA000000000000000000010A /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
+		AA000000000000000000010B /* HealthKitExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitExporter.swift; sourceTree = "<group>"; };
+		AA000000000000000000010C /* SleepVueSync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SleepVueSync.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,9 +68,11 @@
 			children = (
 				AA0000000000000000000101 /* SleepVueSyncApp.swift */,
 				AA0000000000000000000102 /* AppState.swift */,
+				AA000000000000000000010C /* SleepVueSync.entitlements */,
 				AA0000000000000000000007 /* FTS */,
 				AA0000000000000000000008 /* Model */,
 				AA0000000000000000000009 /* Storage */,
+				AA0000000000000000000014 /* Health */,
 				AA000000000000000000000A /* UI */,
 			);
 			path = SleepVueSync;
@@ -96,6 +101,14 @@
 				AA0000000000000000000106 /* NightStore.swift */,
 			);
 			path = Storage;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000014 /* Health */ = {
+			isa = PBXGroup;
+			children = (
+				AA000000000000000000010B /* HealthKitExporter.swift */,
+			);
+			path = Health;
 			sourceTree = "<group>";
 		};
 		AA000000000000000000000A /* UI */ = {
@@ -187,6 +200,7 @@
 				AA0000000000000000000208 /* NightDetailView.swift in Sources */,
 				AA0000000000000000000209 /* HypnogramView.swift in Sources */,
 				AA000000000000000000020A /* Formatters.swift in Sources */,
+				AA000000000000000000020B /* HealthKitExporter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -312,6 +326,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_ENTITLEMENTS = SleepVueSync/SleepVueSync.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -319,6 +334,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "SleepVue connects to your UNA Watch over Bluetooth to download recorded sleep nights.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "SleepVue writes your recorded sleep nights to Apple Health.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -326,7 +342,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sleepvue.sync;
 				PRODUCT_NAME = SleepVue;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -339,6 +355,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_ENTITLEMENTS = SleepVueSync/SleepVueSync.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -346,6 +363,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "SleepVue connects to your UNA Watch over Bluetooth to download recorded sleep nights.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "SleepVue writes your recorded sleep nights to Apple Health.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -353,7 +371,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sleepvue.sync;
 				PRODUCT_NAME = SleepVue;
 				SWIFT_EMIT_LOC_STRINGS = YES;

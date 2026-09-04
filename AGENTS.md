@@ -6,6 +6,16 @@ to `una-sdk/` (gitignored), build via `source env.sh` + cmake/make in
 `SleepVue/build/` (see README.md). `SleepVue/ARCHITECTURE.md` is the
 design doc — keep it current when behavior changes.
 
+iPhone companion app: `ios/` (SwiftUI; BLE FTS sync per
+`una-sdk/Docs/BLE-File-Transfer-Service.md`, write-only HealthKit export).
+Key facts: watch discovery must go through
+`retrieveConnectedPeripherals` (iOS holds an ANCS link, so the watch
+never advertises); SLP1 parser changes must keep passing
+`ios/ParserCheck` (swiftc harness, verified byte-exact against
+`tools/plot_night.py` on `nights/*.bin`). No full Xcode in CLI —
+typecheck with swiftc against the iPhoneSimulator SDK; user builds/runs
+from Xcode.app.
+
 ## On every watch access (whenever `/Volumes/UNA WATCH` is mounted)
 
 Do this routine without being asked:

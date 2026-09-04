@@ -21,13 +21,30 @@ final class AppState: ObservableObject {
     @Published private(set) var progressLabel = ""
     @Published var errorMessage: String?
 
+    // Apple Health export (write-only). Enabling prompts for permission and
+    // back-exports all synced nights; syncs export new nights automatically.
+    @Published private(set) var healthExportEnabled: Bool
+    @Published private(set) var healthNote = ""
+
     /// SleepVue stores its nights in its app-private dir, visible over FTS here.
     static let watchDir = "/Apps/SleepVue"
 
     private let store = NightStore()
+    private let health = HealthKitExporter()
     private var cancellables: Set<AnyCancellable> = []
 
+    private static let healthEnabledKey = "sleepvue.healthExportEnabled"
+    private static let healthExportedKey = "sleepvue.healthExportedDateKeys"
+
+    /// dateKeys (as strings) already pushed to HealthKit. Local marker only —
+    /// the sync identifiers make Health-side duplicates impossible anyway.
+    private var exportedDateKeys: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: Self.healthExportedKey) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: Self.healthExportedKey) }
+    }
+
     init() {
+        healthExportEnabled = UserDefaults.standard.bool(forKey: Self.healthEnabledKey)
         // Surface FTSClient's @Published changes through AppState so views
         // only need to observe one object.
         client.objectWillChange
@@ -73,6 +90,7 @@ final class AppState: ObservableObject {
                 return !known.contains(key)
             }
 
+            var downloaded: [Night] = []
             for (index, entry) in newFiles.enumerated() {
                 let path = Self.watchDir + "/" + entry.name
                 progressLabel = "Night \(index + 1) of \(newFiles.count): \(entry.name)"
@@ -81,7 +99,7 @@ final class AppState: ObservableObject {
                 }
 
                 // Validate before trusting anything.
-                _ = try NightFile.parse(data)
+                let night = try NightFile.parse(data)
 
                 // Cheap integrity proof without read-back (protocol v5+).
                 if client.protocolVersion >= 5 {
@@ -92,14 +110,76 @@ final class AppState: ObservableObject {
                 }
 
                 try store.save(data, fileName: entry.name)
+                downloaded.append(night)
             }
 
             progressLabel = newFiles.isEmpty ? "Up to date" : "Synced \(newFiles.count) night(s)"
             progress = 1
             reloadLocal()
+
+            if healthExportEnabled, !downloaded.isEmpty {
+                progressLabel = "Writing to Apple Health…"
+                await exportToHealth(downloaded)
+                progressLabel = newFiles.isEmpty ? "Up to date" : "Synced \(newFiles.count) night(s)"
+            }
         } catch {
             errorMessage = describe(error)
             progressLabel = ""
+        }
+    }
+
+    /// Toggle from the UI. Enabling asks for HealthKit write access and
+    /// back-exports any synced nights not yet written.
+    func setHealthExport(_ enabled: Bool) {
+        guard enabled else {
+            healthExportEnabled = false
+            UserDefaults.standard.set(false, forKey: Self.healthEnabledKey)
+            healthNote = ""
+            return
+        }
+        guard HealthKitExporter.isAvailable else {
+            healthNote = HealthExportError.unavailable.localizedDescription
+            return
+        }
+        Task {
+            do {
+                if try await health.requestWriteAuthorization() {
+                    healthExportEnabled = true
+                    UserDefaults.standard.set(true, forKey: Self.healthEnabledKey)
+                    healthNote = ""
+                    await exportToHealth(nights)
+                } else {
+                    healthNote = HealthExportError.notAuthorized.localizedDescription
+                }
+            } catch {
+                healthNote = error.localizedDescription
+            }
+        }
+    }
+
+    /// Export nights not yet marked exported; marks on success. Health
+    /// failures are reported in healthNote, never thrown into the sync flow.
+    private func exportToHealth(_ candidates: [Night]) async {
+        guard health.canWrite() else {
+            healthNote = HealthExportError.notAuthorized.localizedDescription
+            return
+        }
+        var done = exportedDateKeys
+        var exportedCount = 0
+        for night in candidates {
+            let key = String(night.header.dateKey)
+            guard !done.contains(key) else { continue }
+            do {
+                try await health.export(night)
+                done.insert(key)
+                exportedCount += 1
+            } catch {
+                healthNote = "Health export failed for \(night.displayDate): \(error.localizedDescription)"
+            }
+        }
+        exportedDateKeys = done
+        if exportedCount > 0 {
+            healthNote = "\(exportedCount) night(s) written to Apple Health"
         }
     }
 
