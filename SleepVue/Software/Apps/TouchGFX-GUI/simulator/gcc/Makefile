@@ -34,6 +34,10 @@ VPATH := $(SDK)\
 #If you want to add a source file from UNA-SDK, just write the path starting with the internal UNA-SDK folder
 ADDITIONAL_SOURCES_UNA :=\
 ../../Libs/Sources/Service.cpp\
+../../Libs/Sources/SleepFitWriter.cpp\
+Libs/Source/SensorLayer/SensorConnection.cpp\
+Libs/Source/Fit/FitWriter.cpp\
+Libs/Source/Fit/FitCrc.cpp\
 Libs/Source/Simulator/Kernel/Mock/FileSystem.cpp\
 Libs/Source/Simulator/OS/OS.cpp\
 Libs/Source/UnaLogger/Logger.cpp\

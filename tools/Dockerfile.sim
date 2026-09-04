@@ -1,0 +1,13 @@
+# Linux (amd64) environment for the UNA TouchGFX simulator + noVNC access.
+# Build:  docker build --platform linux/amd64 -f tools/Dockerfile.sim -t una-sim .
+# Run:    tools/run-simulator.sh   (then open http://localhost:6080/vnc.html)
+FROM --platform=linux/amd64 ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential g++ make \
+        libsdl2-dev libsdl2-image-dev libjpeg-dev \
+        ruby ruby-nokogiri \
+        xvfb x11vnc novnc websockify \
+    && rm -rf /var/lib/apt/lists/*
