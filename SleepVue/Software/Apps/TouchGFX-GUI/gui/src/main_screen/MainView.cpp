@@ -30,13 +30,23 @@ void fmtClock(uint16_t minutes, char* out, size_t outSize)
 constexpr int16_t kScreenW    = 240;
 constexpr int16_t kStatusY    = 10;
 constexpr int16_t kStatusH    = 32;  // Poppins SemiBold 25 line height
-constexpr int16_t kBarX       = 40;
-constexpr int16_t kBarY       = 48;
-constexpr int16_t kBarW       = 160;
-constexpr int16_t kBarH       = 16;
-constexpr int16_t kTextX      = 16;
-constexpr int16_t kTextY      = 76;
-constexpr int16_t kTextYHist  = 46;
+// Timeline arc bounding box (matches StageTimelineBar geometry: the
+// 45..135 deg sector of the r=104..118 annulus lands in x 36..204,
+// y 193..238; rounded out a couple of px for antialias-free margins).
+constexpr int16_t kArcX       = 34;
+constexpr int16_t kArcY       = 192;
+constexpr int16_t kArcW       = 172;
+constexpr int16_t kArcH       = 48;
+// Text sits inside the ring: full-width centered lines (Medium 18,
+// 23 px + 2 spacing) kept within the r=100 safe circle.
+constexpr int16_t kTextY      = 46;
+constexpr int16_t kTextW      = 240;
+constexpr int16_t kTextH      = 152;
+// History page hides the arc and uses a left-aligned column instead.
+constexpr int16_t kTextXHist  = 22;
+constexpr int16_t kTextYHist  = 50;
+constexpr int16_t kTextWHist  = 208;
+constexpr int16_t kTextHHist  = 190;
 
 // Status colors are distinct from the stage palette so the field can't
 // be mistaken for a bar segment.
@@ -62,9 +72,8 @@ void MainView::setupScreen()
     // text area driven from code (no Designer round-trip needed).
     remove(textArea1);
 
-    mainText.setTypedText(touchgfx::TypedText(T_TMP_MEDIUM_18_L));
-    mainText.setXY(kTextX, kTextY);
-    mainText.setWidth(208);
+    mainText.setTypedText(touchgfx::TypedText(T_TMP_MEDIUM_18));
+    mainText.setPosition(0, kTextY, kTextW, kTextH);
     mainText.setColor(touchgfx::Color::getColorFromRGB(255, 255, 255));
     mainText.setLinespacing(2);
     mainText.setWildcard1(textBuffer);
@@ -76,9 +85,9 @@ void MainView::setupScreen()
     statusText.setWildcard1(statusBuffer);
     add(statusText);
 
-    // Stage timeline bar: geometry is fixed; column data + visibility
+    // Stage timeline arc: geometry is fixed; column data + visibility
     // are driven by renderStageBar()/hideStageBar() on every render.
-    stageBar.setPosition(kBarX, kBarY, kBarW, kBarH);
+    stageBar.setPosition(kArcX, kArcY, kArcW, kArcH);
     add(stageBar);
 
     render();
@@ -149,7 +158,7 @@ void MainView::onSleepTimeline(const CustomMessage::SleepTimelineData& t)
 
 void MainView::renderStageBar()
 {
-    touchgfx::Rect cover(kBarX, kBarY, kBarW, kBarH);
+    touchgfx::Rect cover(kArcX, kArcY, kArcW, kArcH);
     invalidateRect(cover);
 
     if (mTimelineValid && mTimelineDateKey == mSummary.dateKey) {
@@ -163,7 +172,7 @@ void MainView::renderStageBar()
 
 void MainView::hideStageBar()
 {
-    touchgfx::Rect cover(kBarX, kBarY, kBarW, kBarH);
+    touchgfx::Rect cover(kArcX, kArcY, kArcW, kArcH);
     invalidateRect(cover);
     stageBar.setVisible(false);
 }
@@ -171,14 +180,17 @@ void MainView::hideStageBar()
 void MainView::flushMainText()
 {
     touchgfx::Unicode::strncpy(textBuffer, stagingBuf, kTextBufferSize);
-    mainText.resizeToCurrentText();
+    // Fixed widget rects that are fully invalidated on every render, so
+    // no resizeToCurrentText() (it would shrink the box and break the
+    // centering); the whole rect redraws and stale glyphs are erased.
     mainText.invalidate();
 }
 
 void MainView::renderHistory()
 {
-    mainText.invalidate(); // erase old rect before moving/resizing
-    mainText.setXY(kTextX, kTextYHist);
+    mainText.invalidate(); // erase old rect before moving/re-aligning
+    mainText.setPosition(kTextXHist, kTextYHist, kTextWHist, kTextHHist);
+    mainText.setTypedText(touchgfx::TypedText(T_TMP_MEDIUM_18_L));
 
     if (mRowCount == 0) {
         snprintf(stagingBuf, sizeof(stagingBuf), "WEEK HISTORY\n\nno nights yet");
@@ -220,8 +232,9 @@ void MainView::render()
         return;
     }
 
-    mainText.invalidate(); // erase old rect before moving/resizing
-    mainText.setXY(kTextX, kTextY);
+    mainText.invalidate(); // erase old rect before moving/re-aligning
+    mainText.setPosition(0, kTextY, kTextW, kTextH);
+    mainText.setTypedText(touchgfx::TypedText(T_TMP_MEDIUM_18));
 
     if (tracking) {
         hideStageBar();
@@ -255,16 +268,17 @@ void MainView::render()
         // page to 5 lines (status field + stage bar take the top).
         const char* note = endNote[0] ? endNote : "AUTO 20-03";
 
+        // Short centered lines that stay inside the ring's inner edge.
         if (mSummary.hrMin > 0) {
             snprintf(stagingBuf, sizeof(stagingBuf),
-                     "LAST NIGHT %s\nD %s L %s A %s\n%s-%s HR%u-%u\n%s\nR1 START L1 WK",
-                     total, deep, light, awake, bed, wake,
+                     "LAST NIGHT %s\nD %s L %s\nA %s HR %u-%u\n%s-%s\n%s\nR1 START L1 WK",
+                     total, deep, light, awake,
                      static_cast<unsigned>(mSummary.hrMin),
                      static_cast<unsigned>(mSummary.hrMax),
-                     note);
+                     bed, wake, note);
         } else {
             snprintf(stagingBuf, sizeof(stagingBuf),
-                     "LAST NIGHT %s\nD %s L %s A %s\n%s-%s\n%s\nR1 START L1 WK",
+                     "LAST NIGHT %s\nD %s L %s\nA %s\n%s-%s\n%s\nR1 START L1 WK",
                      total, deep, light, awake, bed, wake, note);
         }
     } else {

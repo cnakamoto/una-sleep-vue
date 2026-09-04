@@ -113,10 +113,13 @@ One file per night + a small index. Binary, fixed-layout, versioned:
 ## 7. GUI screens (TouchGFX)
 
 1. **Main** — status field (IDLE/SLEEP) centered at the top; last night:
-   stage timeline bar (x = time, bed→wake; 160 px columns, per-column
-   stage color — DEEP indigo / LIGHT blue / AWAKE amber, same palette as
-   tools/plot_night.py) + compact text (total, per-stage minutes,
-   bed→wake times, HR min–max). Empty state: "NO SLEEP YET".
+   stage timeline as an arc band around the bottom edge (90° span,
+   45–135°, bed at the left end, wake at the right; 160 columns,
+   per-column stage color — DEEP indigo / LIGHT blue / AWAKE amber, same
+   palette as tools/plot_night.py; span limited by the button legend
+   icons at ~30°/160°) + centered text (total, per-stage minutes,
+   bed→wake times, HR min–max) kept inside the ring. Empty state:
+   "NO SLEEP YET".
 2. **History** — 7-night scroll: duration bars + stage split per night.
 3. **Session** — while TRACKING: elapsed time, live HR, stop button
    (and "Start sleep" entry point from Main).

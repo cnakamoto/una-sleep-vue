@@ -53,8 +53,9 @@ private:
     touchgfx::TextAreaWithOneWildcard statusText;
     touchgfx::Unicode::UnicodeChar statusBuffer[kStatusBufferSize];
 
-    // Stage bar: per-column stage timeline of the last completed night
-    // (x = time, bed -> wake; colors follow tools/plot_night.py).
+    // Stage arc: per-column stage timeline of the last completed night
+    // curved around the bottom screen edge (x = time along the arc,
+    // bed at the left end, wake at the right; plot_night.py palette).
     StageTimelineBar stageBar;
 
     // Timeline chunk accumulation (kChunks chunks of 40 columns, 2-bit
