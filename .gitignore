@@ -14,3 +14,11 @@ nights/
 
 # App build output
 SleepVue/build/
+
+# iOS companion app build artifacts
+ios/.derivedData/
+ios/ParserCheck/parsercheck
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
