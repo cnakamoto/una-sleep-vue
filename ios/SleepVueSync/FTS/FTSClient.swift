@@ -93,6 +93,7 @@ final class FTSClient: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        debugLog = DebugLog.recent(100)
         central = CBCentralManager(delegate: self, queue: nil)
     }
 
@@ -310,9 +311,14 @@ final class FTSClient: NSObject, ObservableObject {
     // MARK: - Debug log
 
     private func log(_ message: String) {
-        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        debugLog.append("\(stamp)  \(message)")
+        let line = DebugLog.write(message) // persists to Documents/ble-debug.log
+        debugLog.append(line)
         if debugLog.count > 100 { debugLog.removeFirst(debugLog.count - 100) }
+    }
+
+    func clearDebugLog() {
+        DebugLog.clear()
+        debugLog = []
     }
 
     // MARK: - Scanning

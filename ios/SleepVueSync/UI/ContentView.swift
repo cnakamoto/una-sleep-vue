@@ -76,8 +76,14 @@ struct ContentView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
                             }
+                            Button("Clear log", role: .destructive) {
+                                state.client.clearDebugLog()
+                            }
+                            .font(.caption)
                         }
                     }
+                } footer: {
+                    Text("Persists across launches, so background syncs leave a trail. Background refresh runs a few times a day at iOS's discretion.")
                 }
             }
             .navigationTitle("SleepVue")

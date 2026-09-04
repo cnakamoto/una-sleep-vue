@@ -81,6 +81,7 @@ final class AppState: ObservableObject {
         syncing = true
         progress = 0
         defer { syncing = false }
+        DebugLog.write("sync started")
 
         do {
             if client.phase != .ready {
@@ -146,9 +147,11 @@ final class AppState: ObservableObject {
                 if pruned > 0 { summary += " · deleted \(pruned) from watch" }
             }
             progressLabel = summary
+            DebugLog.write("sync ok: \(summary)")
         } catch {
             errorMessage = describe(error)
             progressLabel = ""
+            DebugLog.write("sync failed: \(error.localizedDescription)")
         }
     }
 
