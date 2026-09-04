@@ -44,6 +44,7 @@ public:
     void onSessionState(const CustomMessage::SessionStateData& state) override;
     void onSleepSummary(const CustomMessage::SleepSummaryData& summary) override;
     void onHistoryEntry(const CustomMessage::HistoryEntryData& entry) override;
+    void onSleepTimeline(const CustomMessage::SleepTimelineData& timeline) override;
 
 private:
     MainPresenter();

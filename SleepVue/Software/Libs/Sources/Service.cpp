@@ -180,6 +180,7 @@ void Service::onStartGUI()
     mGUIStarted = true;
     sendSessionState();
     sendSummary();
+    sendTimeline();
 }
 
 void Service::onStopGUI()
@@ -684,6 +685,7 @@ void Service::finalizeSessionFile()
 
     updateIndex(hdr);
     sendSummary();
+    sendTimeline();
 }
 
 void Service::updateIndex(const Sleep::SessionHeader& hdr)
@@ -870,6 +872,77 @@ void Service::sendSummary()
     d.hrMax = hdr.hrMax;
     d.flags = hdr.flags;
     SDK::send_msg<CustomMessage::SleepSummary>(mKernel, d);
+}
+
+void Service::sendTimeline()
+{
+    if (!mGUIStarted) {
+        return;
+    }
+
+    using Tl = CustomMessage::SleepTimelineData;
+
+    Sleep::SessionHeader hdr;
+    if (mHasSummary && loadLastHeader(hdr) && hdr.epochCount > 0) {
+        // Bucket epochs into screen columns: column c covers epochs
+        // [c*N/C, (c+1)*N/C); majority stage wins, ties go lighter
+        // (conservative: a mixed slice reads as the lighter stage).
+        memset(mColCounts, 0, sizeof(mColCounts));
+
+        auto file = mKernel.fs.file(Sleep::kLastFile);
+        uint16_t done = 0;
+        if (file && file->open(false)) {
+            file->seek(sizeof(Sleep::SessionHeader));
+            Sleep::EpochRecord recs[64];
+            while (done < hdr.epochCount) {
+                uint16_t want = hdr.epochCount - done;
+                if (want > 64) {
+                    want = 64;
+                }
+                size_t br = 0;
+                if (!file->read(reinterpret_cast<char*>(recs),
+                                want * sizeof(Sleep::EpochRecord), br)
+                        || br != want * sizeof(Sleep::EpochRecord)) {
+                    break; // truncated file: treat as no timeline
+                }
+                for (uint16_t i = 0; i < want; ++i) {
+                    uint32_t col = static_cast<uint32_t>(done + i)
+                                   * Tl::kMaxColumns / hdr.epochCount;
+                    uint8_t st = static_cast<uint8_t>(recs[i].stage());
+                    if (st <= 2 && mColCounts[col][st] < 255) {
+                        ++mColCounts[col][st];
+                    }
+                }
+                done += want;
+            }
+            file->close();
+        }
+
+        if (done == hdr.epochCount) {
+            for (uint8_t ch = 0; ch < Tl::kChunks; ++ch) {
+                CustomMessage::SleepTimelineData d{};
+                d.dateKey = hdr.dateKey;
+                d.epochCount = hdr.epochCount;
+                d.chunk = ch;
+                d.chunkCount = Tl::kChunks;
+                for (uint8_t c = 0; c < Tl::kColumnsPerChunk; ++c) {
+                    uint16_t col = ch * Tl::kColumnsPerChunk + c;
+                    uint8_t a = mColCounts[col][0];
+                    uint8_t l = mColCounts[col][1];
+                    uint8_t dp = mColCounts[col][2];
+                    uint8_t st = (a >= l && a >= dp) ? 0 : (l >= dp ? 1 : 2);
+                    d.columns[c / 4] |= static_cast<uint8_t>(st << ((c % 4) * 2));
+                }
+                SDK::send_msg<CustomMessage::SleepTimeline>(mKernel, d);
+            }
+            return;
+        }
+    }
+
+    // No timeline: single marker so the GUI hides the bar.
+    CustomMessage::SleepTimelineData none{};
+    none.chunkCount = 0;
+    SDK::send_msg<CustomMessage::SleepTimeline>(mKernel, none);
 }
 
 bool Service::loadLastHeader(Sleep::SessionHeader& hdr)

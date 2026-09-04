@@ -133,6 +133,13 @@ bool Model::customMessageHandler(SDK::MessageBase* msg)
             }
         } break;
 
+        case CustomMessage::SLEEP_TIMELINE: {
+            auto* m = static_cast<CustomMessage::SleepTimeline*>(msg);
+            if (modelListener) {
+                modelListener->onSleepTimeline(m->d);
+            }
+        } break;
+
         default:
             break;
     }

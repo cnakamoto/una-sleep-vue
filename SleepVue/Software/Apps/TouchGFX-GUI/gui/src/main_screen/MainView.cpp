@@ -4,6 +4,7 @@
 #include "SleepTypes.hpp"
 
 #include <cstdio>
+#include <cstring>
 
 namespace
 {
@@ -23,6 +24,24 @@ void fmtClock(uint16_t minutes, char* out, size_t outSize)
              static_cast<unsigned>(minutes / 60),
              static_cast<unsigned>(minutes % 60));
 }
+
+// 240x240 round screen: y coordinates keep content inside the visible
+// chord and clear of the button legend icons at the side edges.
+constexpr int16_t kScreenW    = 240;
+constexpr int16_t kStatusY    = 10;
+constexpr int16_t kStatusH    = 32;  // Poppins SemiBold 25 line height
+constexpr int16_t kBarX       = 40;
+constexpr int16_t kBarY       = 48;
+constexpr int16_t kBarW       = 160;
+constexpr int16_t kBarH       = 16;
+constexpr int16_t kTextX      = 16;
+constexpr int16_t kTextY      = 76;
+constexpr int16_t kTextYHist  = 46;
+
+// Status colors are distinct from the stage palette so the field can't
+// be mistaken for a bar segment.
+touchgfx::colortype colorIdle()  { return touchgfx::Color::getColorFromRGB(96, 220, 120); }
+touchgfx::colortype colorSleep() { return touchgfx::Color::getColorFromRGB(190, 130, 255); }
 
 } // namespace
 
@@ -44,12 +63,23 @@ void MainView::setupScreen()
     remove(textArea1);
 
     mainText.setTypedText(touchgfx::TypedText(T_TMP_MEDIUM_18_L));
-    mainText.setXY(16, 24);
+    mainText.setXY(kTextX, kTextY);
     mainText.setWidth(208);
     mainText.setColor(touchgfx::Color::getColorFromRGB(255, 255, 255));
     mainText.setLinespacing(2);
     mainText.setWildcard1(textBuffer);
     add(mainText);
+
+    // Status field: full-width centered, fixed box (text centers inside).
+    statusText.setTypedText(touchgfx::TypedText(T_TMP_SEMIBOLD_25));
+    statusText.setPosition(0, kStatusY, kScreenW, kStatusH);
+    statusText.setWildcard1(statusBuffer);
+    add(statusText);
+
+    // Stage timeline bar: geometry is fixed; column data + visibility
+    // are driven by renderStageBar()/hideStageBar() on every render.
+    stageBar.setPosition(kBarX, kBarY, kBarW, kBarH);
+    add(stageBar);
 
     render();
 }
@@ -86,38 +116,95 @@ void MainView::onHistoryEntry(const CustomMessage::HistoryEntryData& entry)
     }
 }
 
-void MainView::renderHistory()
+void MainView::renderStatus(bool tracking)
 {
-    if (mRowCount == 0) {
-        touchgfx::Unicode::snprintf(textBuffer, kTextBufferSize,
-                                    "WEEK HISTORY\n\nno nights yet");
-    } else {
-        touchgfx::Unicode::snprintf(textBuffer, kTextBufferSize,
-                                    "WEEK (%u NIGHTS)\n",
-                                    static_cast<unsigned>(mRowCount));
-        for (uint8_t i = 0; i < mRowCount; ++i) {
-            const auto& r = mRows[i];
-            uint16_t len = touchgfx::Unicode::strlen(textBuffer);
-            if (len >= kTextBufferSize - 20) {
-                break; // out of buffer: show what fits
-            }
-            touchgfx::Unicode::snprintf(
-                textBuffer + len, kTextBufferSize - len,
-                "%02u/%02u %luH%02lu D%luH%02lu\n",
-                static_cast<unsigned>((r.dateKey / 100) % 100),
-                static_cast<unsigned>(r.dateKey % 100),
-                static_cast<unsigned long>(r.totalMin / 60),
-                static_cast<unsigned long>(r.totalMin % 60),
-                static_cast<unsigned long>(r.deepMin / 60),
-                static_cast<unsigned long>(r.deepMin % 60));
-        }
-        uint16_t len = touchgfx::Unicode::strlen(textBuffer);
-        touchgfx::Unicode::snprintf(textBuffer + len, kTextBufferSize - len,
-                                    "\nL1 BACK");
-    }
+    touchgfx::Unicode::strncpy(statusBuffer, tracking ? "SLEEP" : "IDLE",
+                               kStatusBufferSize);
+    statusText.setColor(tracking ? colorSleep() : colorIdle());
+    statusText.invalidate();
+}
 
+void MainView::onSleepTimeline(const CustomMessage::SleepTimelineData& t)
+{
+    using Tl = CustomMessage::SleepTimelineData;
+    static constexpr uint8_t kFullMask = (1u << Tl::kChunks) - 1;
+
+    if (t.chunkCount == 0) {
+        // Service has no timeline for the last night.
+        mTimelineValid = false;
+        mTimelineMask = 0;
+        mTimelineDateKey = 0;
+    } else if (t.chunkCount == Tl::kChunks && t.chunk < Tl::kChunks) {
+        if (mTimelineDateKey != t.dateKey) {
+            mTimelineMask = 0; // first chunk of a new night
+        }
+        mTimelineDateKey = t.dateKey;
+        memcpy(mTimelineCols + t.chunk * (Tl::kColumnsPerChunk / 4),
+               t.columns, Tl::kColumnsPerChunk / 4);
+        mTimelineMask |= static_cast<uint8_t>(1u << t.chunk);
+        mTimelineValid = (mTimelineMask == kFullMask);
+    }
+    render();
+}
+
+void MainView::renderStageBar()
+{
+    touchgfx::Rect cover(kBarX, kBarY, kBarW, kBarH);
+    invalidateRect(cover);
+
+    if (mTimelineValid && mTimelineDateKey == mSummary.dateKey) {
+        stageBar.setColumns(mTimelineCols);
+        stageBar.setVisible(true);
+    } else {
+        stageBar.setVisible(false);
+    }
+    stageBar.invalidate();
+}
+
+void MainView::hideStageBar()
+{
+    touchgfx::Rect cover(kBarX, kBarY, kBarW, kBarH);
+    invalidateRect(cover);
+    stageBar.setVisible(false);
+}
+
+void MainView::flushMainText()
+{
+    touchgfx::Unicode::strncpy(textBuffer, stagingBuf, kTextBufferSize);
     mainText.resizeToCurrentText();
     mainText.invalidate();
+}
+
+void MainView::renderHistory()
+{
+    mainText.invalidate(); // erase old rect before moving/resizing
+    mainText.setXY(kTextX, kTextYHist);
+
+    if (mRowCount == 0) {
+        snprintf(stagingBuf, sizeof(stagingBuf), "WEEK HISTORY\n\nno nights yet");
+    } else {
+        snprintf(stagingBuf, sizeof(stagingBuf), "WEEK (%u NIGHTS)\n",
+                 static_cast<unsigned>(mRowCount));
+        for (uint8_t i = 0; i < mRowCount; ++i) {
+            const auto& r = mRows[i];
+            size_t len = strlen(stagingBuf);
+            if (len >= sizeof(stagingBuf) - 20) {
+                break; // out of buffer: show what fits
+            }
+            snprintf(stagingBuf + len, sizeof(stagingBuf) - len,
+                     "%02u/%02u %luH%02lu D%luH%02lu\n",
+                     static_cast<unsigned>((r.dateKey / 100) % 100),
+                     static_cast<unsigned>(r.dateKey % 100),
+                     static_cast<unsigned long>(r.totalMin / 60),
+                     static_cast<unsigned long>(r.totalMin % 60),
+                     static_cast<unsigned long>(r.deepMin / 60),
+                     static_cast<unsigned long>(r.deepMin % 60));
+        }
+        size_t len = strlen(stagingBuf);
+        snprintf(stagingBuf + len, sizeof(stagingBuf) - len, "\nL1 BACK");
+    }
+
+    flushMainText();
 }
 
 void MainView::render()
@@ -125,26 +212,32 @@ void MainView::render()
     const bool tracking = mHasState
         && mState.state == CustomMessage::TrackingState::TRACKING;
 
+    renderStatus(tracking);
+
     if (!tracking && mPage == Page::HISTORY) {
+        hideStageBar();
         renderHistory();
         return;
     }
 
+    mainText.invalidate(); // erase old rect before moving/resizing
+    mainText.setXY(kTextX, kTextY);
+
     if (tracking) {
+        hideStageBar();
         char dur[12];
         fmtDur(mState.elapsedMin, dur, sizeof(dur));
         if (mState.liveHr > 0) {
-            touchgfx::Unicode::snprintf(
-                textBuffer, kTextBufferSize,
-                "SLEEPING %s\nHR %u BPM\n\nR1 STOP",
-                dur, static_cast<unsigned>(mState.liveHr));
+            snprintf(stagingBuf, sizeof(stagingBuf),
+                     "SLEEPING %s\nHR %u BPM\n\nR1 STOP",
+                     dur, static_cast<unsigned>(mState.liveHr));
         } else {
-            touchgfx::Unicode::snprintf(
-                textBuffer, kTextBufferSize,
-                "SLEEPING %s\nHR --\n\nR1 STOP",
-                dur);
+            snprintf(stagingBuf, sizeof(stagingBuf),
+                     "SLEEPING %s\nHR --\n\nR1 STOP",
+                     dur);
         }
     } else if (mHasSummary && mSummary.totalMin > 0) {
+        renderStageBar();
         char total[12], deep[12], light[12], awake[12], bed[8], wake[8];
         fmtDur(mSummary.totalMin, total, sizeof(total));
         fmtDur(mSummary.deepMin, deep, sizeof(deep));
@@ -158,28 +251,29 @@ void MainView::render()
         else if (mSummary.flags & Sleep::Flags::kAbortedBattery) endNote = "END: BATTERY";
         else if (mSummary.flags & Sleep::Flags::kInterrupted) endNote = "END: PWR OFF";
         else if (mSummary.flags & Sleep::Flags::kAutoWake) endNote = "END: AUTO-WAKE";
+        // The end note and the auto-start hint share a line to keep the
+        // page to 5 lines (status field + stage bar take the top).
+        const char* note = endNote[0] ? endNote : "AUTO 20-03";
 
         if (mSummary.hrMin > 0) {
-            touchgfx::Unicode::snprintf(
-                textBuffer, kTextBufferSize,
-                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s HR%u-%u\n%s\nAUTO 20-03\nR1 START L1 WK",
-                total, deep, awake, light, bed, wake,
-                static_cast<unsigned>(mSummary.hrMin),
-                static_cast<unsigned>(mSummary.hrMax),
-                endNote);
+            snprintf(stagingBuf, sizeof(stagingBuf),
+                     "LAST NIGHT %s\nD %s L %s A %s\n%s-%s HR%u-%u\n%s\nR1 START L1 WK",
+                     total, deep, light, awake, bed, wake,
+                     static_cast<unsigned>(mSummary.hrMin),
+                     static_cast<unsigned>(mSummary.hrMax),
+                     note);
         } else {
-            touchgfx::Unicode::snprintf(
-                textBuffer, kTextBufferSize,
-                "LAST NIGHT %s\nDEEP %s AW %s\nLIGHT %s\n%s-%s\n%s\nAUTO 20-03\nR1 START L1 WK",
-                total, deep, awake, light, bed, wake, endNote);
+            snprintf(stagingBuf, sizeof(stagingBuf),
+                     "LAST NIGHT %s\nD %s L %s A %s\n%s-%s\n%s\nR1 START L1 WK",
+                     total, deep, light, awake, bed, wake, note);
         }
     } else {
-        touchgfx::Unicode::snprintf(textBuffer, kTextBufferSize,
-                                    "NO SLEEP YET\n\nAUTO 20-03\nR1 START L1 WK");
+        hideStageBar();
+        snprintf(stagingBuf, sizeof(stagingBuf),
+                 "NO SLEEP YET\n\nAUTO 20-03\nR1 START L1 WK");
     }
 
-    mainText.resizeToCurrentText();
-    mainText.invalidate();
+    flushMainText();
 }
 
 void MainView::handleKeyEvent(uint8_t key)

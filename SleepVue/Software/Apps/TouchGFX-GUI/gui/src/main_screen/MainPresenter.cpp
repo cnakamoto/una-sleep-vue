@@ -31,3 +31,8 @@ void MainPresenter::onHistoryEntry(const CustomMessage::HistoryEntryData& entry)
 {
     view.onHistoryEntry(entry);
 }
+
+void MainPresenter::onSleepTimeline(const CustomMessage::SleepTimelineData& timeline)
+{
+    view.onSleepTimeline(timeline);
+}

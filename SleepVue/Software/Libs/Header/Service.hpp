@@ -104,6 +104,10 @@ private:
 
     bool                     mHasSummary;      // slp_last.bin exists
 
+    // Scratch for sendTimeline(): per-column stage tallies while
+    // bucketing the night's epochs into screen columns.
+    uint8_t                  mColCounts[CustomMessage::SleepTimelineData::kMaxColumns][3];
+
     void onStartGUI();
     void onStopGUI();
 
@@ -124,6 +128,7 @@ private:
 
     void sendSessionState();
     void sendSummary();
+    void sendTimeline();       // stage columns of slp_last.bin, streamed
     bool loadLastHeader(Sleep::SessionHeader& hdr);
 
     // Night index ring (slp_idx.bin), updated on every session close.

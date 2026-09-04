@@ -9,7 +9,7 @@ set(DEV_ID "UNA")
 set(APP_ID "4F2CE6CCAA9F1140")
 # Pinned version (stock-style X.Y.Z -> SleepVue_X.Y.Z.uapp); must stay
 # semver-clean — the watch app menu is picky about what it lists.
-set(BUILD_VERSION "0.7.0")
+set(BUILD_VERSION "0.7.4")
 # Probe phase: service must start at watch boot and stay resident overnight
 # (same always-on pattern as the SDK's Alarm example).
 set(APP_AUTOSTART On)

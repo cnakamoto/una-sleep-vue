@@ -6,6 +6,7 @@
 
 #include <touchgfx/Unicode.hpp>
 #include <touchgfx/widgets/TextAreaWithWildcard.hpp>
+#include <gui/containers/StageTimelineBar.hpp>
 #include "Commands.hpp"
 
 class MainView : public MainViewBase
@@ -25,6 +26,9 @@ public:
     /** One history row arrived (streamed after a page switch). */
     void onHistoryEntry(const CustomMessage::HistoryEntryData& entry);
 
+    /** One stage-timeline chunk arrived (streamed after the summary). */
+    void onSleepTimeline(const CustomMessage::SleepTimelineData& timeline);
+
 protected:
     virtual void handleKeyEvent(uint8_t key) override;
 
@@ -33,9 +37,32 @@ private:
     // (textArea1 is removed in setupScreen — no Designer round-trip needed).
     // This TouchGFX port stores a pointer to the wildcard, not a copy —
     // the buffer must outlive the widget (it's a member, so it does).
+    //
+    // NOTE: this port's Unicode::snprintf reads %s arguments as wide
+    // UnicodeChar* strings — passing char* makes it scan past the byte
+    // null through stack memory (v0.7.1 garbled-text bug). All text is
+    // therefore composed with C snprintf into stagingBuf and widened
+    // once via Unicode::strncpy (which does take char*).
     static constexpr uint16_t kTextBufferSize = 224;
     touchgfx::TextAreaWithOneWildcard mainText;
     touchgfx::Unicode::UnicodeChar textBuffer[kTextBufferSize];
+    char stagingBuf[kTextBufferSize];
+
+    // Status field: always-visible app state string, "IDLE" or "SLEEP".
+    static constexpr uint16_t kStatusBufferSize = 8;
+    touchgfx::TextAreaWithOneWildcard statusText;
+    touchgfx::Unicode::UnicodeChar statusBuffer[kStatusBufferSize];
+
+    // Stage bar: per-column stage timeline of the last completed night
+    // (x = time, bed -> wake; colors follow tools/plot_night.py).
+    StageTimelineBar stageBar;
+
+    // Timeline chunk accumulation (kChunks chunks of 40 columns, 2-bit
+    // packed). Bar draws only when a complete set matches the summary.
+    uint8_t  mTimelineCols[CustomMessage::SleepTimelineData::kMaxColumns / 4];
+    uint32_t mTimelineDateKey = 0;
+    uint8_t  mTimelineMask = 0;
+    bool     mTimelineValid = false;
 
     CustomMessage::SessionStateData mState { };
     CustomMessage::SleepSummaryData mSummary { };
@@ -50,6 +77,10 @@ private:
 
     void render();
     void renderHistory();
+    void renderStatus(bool tracking);
+    void renderStageBar();
+    void hideStageBar();
+    void flushMainText();  // widen stagingBuf into textBuffer + redraw
 };
 
 #endif // MAINVIEW_HPP

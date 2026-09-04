@@ -21,6 +21,7 @@ constexpr SDK::MessageType::Type SLEEP_SUMMARY   = 0x00000004;
 constexpr SDK::MessageType::Type HISTORY_REQUEST = 0x00000005;
 // Service --> GUI
 constexpr SDK::MessageType::Type HISTORY_ENTRY   = 0x00000006;
+constexpr SDK::MessageType::Type SLEEP_TIMELINE  = 0x00000007;
 
 namespace TrackingState {
 constexpr uint8_t IDLE     = 0;
@@ -149,6 +150,45 @@ struct HistoryEntry : public SDK::MessageBase {
 
     explicit HistoryEntry(const HistoryEntryData& data)
         : SDK::MessageBase(HISTORY_ENTRY)
+        , d(data)
+    {}
+};
+
+// Per-epoch stage timeline of the last completed night, downsampled to
+// kMaxColumns screen columns (x-axis = time, bed -> wake; value =
+// Sleep::Stage, 2 bits per column, LSB first). Streamed in kChunks
+// messages so each stays HistoryEntryData-sized. Sent on GUI start and
+// right after a session closes; a single message with chunkCount == 0
+// means no timeline is available.
+struct SleepTimelineData {
+    static constexpr uint16_t kMaxColumns = 160;     // 1 px each on the 160 px bar
+    static constexpr uint8_t  kColumnsPerChunk = 40;
+    static constexpr uint8_t  kChunks = kMaxColumns / kColumnsPerChunk;
+
+    uint32_t dateKey;        // night the columns belong to
+    uint16_t epochCount;     // epochs downsampled from
+    uint8_t  chunk;          // 0-based chunk index
+    uint8_t  chunkCount;     // total chunks; 0 = no timeline available
+    uint8_t  columns[kColumnsPerChunk / 4];
+    uint8_t  reserved[2];
+};
+static_assert(sizeof(SleepTimelineData) <= sizeof(HistoryEntryData),
+              "keep streamed GUI messages one pool-block sized");
+
+// Service --> GUI
+//
+// One chunk per message, streamed on GUI start and after a session
+// closes (no request needed, same push pattern as SLEEP_SUMMARY).
+struct SleepTimeline : public SDK::MessageBase {
+    SleepTimelineData d;
+
+    SleepTimeline()
+        : SDK::MessageBase(SLEEP_TIMELINE)
+        , d{}
+    {}
+
+    explicit SleepTimeline(const SleepTimelineData& data)
+        : SDK::MessageBase(SLEEP_TIMELINE)
         , d(data)
     {}
 };

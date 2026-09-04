@@ -112,8 +112,11 @@ One file per night + a small index. Binary, fixed-layout, versioned:
 
 ## 7. GUI screens (TouchGFX)
 
-1. **Main** — last night: total sleep big, stage bar (AWAKE/LIGHT/DEEP),
-   bed→wake times, HR min/avg. Empty state: "No sleep recorded".
+1. **Main** — status field (IDLE/SLEEP) centered at the top; last night:
+   stage timeline bar (x = time, bed→wake; 160 px columns, per-column
+   stage color — DEEP indigo / LIGHT blue / AWAKE amber, same palette as
+   tools/plot_night.py) + compact text (total, per-stage minutes,
+   bed→wake times, HR min–max). Empty state: "NO SLEEP YET".
 2. **History** — 7-night scroll: duration bars + stage split per night.
 3. **Session** — while TRACKING: elapsed time, live HR, stop button
    (and "Start sleep" entry point from Main).
@@ -124,6 +127,9 @@ Service → GUI:
 - `SLEEP_SUMMARY` (0x01) — last-night header stats; sentinel values render "--".
 - `SESSION_STATE` (0x02) — IDLE/TRACKING + elapsed minutes + live HR.
 - `HISTORY_ENTRY` (0x03) — one night per message, streamed on request.
+- `SLEEP_TIMELINE` (0x07) — last night's epochs downsampled to 160 stage
+  columns (2 bits each, majority stage per column, ties go lighter),
+  streamed in 4 chunks; pushed with `SLEEP_SUMMARY`, no request needed.
 
 GUI → Service:
 - `TRACKING_TOGGLE` (0x04) — start/stop a night session.

@@ -27,6 +27,9 @@ public:
     /** One history row arrived (streamed after HistoryRequest). */
     virtual void onHistoryEntry(const CustomMessage::HistoryEntryData&) {}
 
+    /** One stage-timeline chunk arrived (streamed on GUI start / close). */
+    virtual void onSleepTimeline(const CustomMessage::SleepTimelineData&) {}
+
 protected:
     Model* model;
 
