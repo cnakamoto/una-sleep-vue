@@ -7,6 +7,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var state: AppState
+    @State private var nightPendingDelete: Night?
 
     var body: some View {
         NavigationStack {
@@ -58,7 +59,9 @@ struct ContentView: View {
                             }
                         }
                         .onDelete { offsets in
-                            for i in offsets { state.delete(state.nights[i]) }
+                            if let first = offsets.first {
+                                nightPendingDelete = state.nights[first]
+                            }
                         }
                     }
                 }
@@ -94,6 +97,24 @@ struct ContentView: View {
                 Button("OK") { state.errorMessage = nil }
             } message: {
                 Text(state.errorMessage ?? "")
+            }
+            .confirmationDialog(
+                "Delete \(nightPendingDelete?.displayDate ?? "this night")?",
+                isPresented: Binding(
+                    get: { nightPendingDelete != nil },
+                    set: { if !$0 { nightPendingDelete = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete night", role: .destructive) {
+                    if let night = nightPendingDelete { state.delete(night) }
+                    nightPendingDelete = nil
+                }
+                Button("Cancel", role: .cancel) { nightPendingDelete = nil }
+            } message: {
+                Text("Removes it from this phone and stops it from syncing again. "
+                    + "If the watch is connected, its copy is deleted too. "
+                    + "Anything already exported stays in Apple Health (SleepVue has write-only access).")
             }
         }
     }

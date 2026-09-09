@@ -2,10 +2,13 @@
 //  HypnogramView.swift
 //  SleepVueSync
 //
-//  Classic hypnogram: AWAKE on top, DEEP at the bottom, one colored run per
-//  maximal stretch of the same stage — same rendering as tools/plot_night.py.
+//  Classic hypnogram as a Swift Charts plot (one RectangleMark per stage
+//  run): AWAKE on top, DEEP at the bottom. Being a Chart lets it share the
+//  exact same plot geometry as the HR and movement panels (see
+//  SleepChartStyle.swift) — the x domain is applied by the parent.
 //
 
+import Charts
 import SwiftUI
 
 extension SleepStage {
@@ -17,7 +20,8 @@ extension SleepStage {
         }
     }
 
-    /// Vertical band index: 0 = top (AWAKE) … 2 = bottom (DEEP).
+    /// Band index 0–2; combined with the y mapping below it places AWAKE at
+    /// the top of the hypnogram and DEEP at the bottom.
     var band: Int {
         switch self {
         case .awake: return 0
@@ -31,25 +35,18 @@ struct HypnogramView: View {
     let night: Night
 
     var body: some View {
-        Canvas { context, size in
-            let t0 = night.bed.timeIntervalSince1970
-            let t1 = night.wake.timeIntervalSince1970
-            guard t1 > t0, !night.epochs.isEmpty else { return }
-
-            let bandHeight = size.height / 3
-            for run in night.stageRuns {
-                let x0 = (run.start.timeIntervalSince1970 - t0) / (t1 - t0) * size.width
-                let x1 = (run.end.timeIntervalSince1970 - t0) / (t1 - t0) * size.width
-                let rect = CGRect(x: x0,
-                                  y: CGFloat(run.stage.band) * bandHeight + bandHeight * 0.05,
-                                  width: max(1, x1 - x0),
-                                  height: bandHeight * 0.9)
-                context.fill(Path(rect), with: .color(run.stage.color))
-            }
+        Chart(night.stageRuns, id: \.start) { run in
+            RectangleMark(
+                xStart: .value("Start", run.start),
+                xEnd: .value("End", run.end),
+                // y domain 0...3; awake (band 0) → 2...3 at the top.
+                yStart: .value("Base", 2 - run.stage.band),
+                yEnd: .value("Top", 3 - run.stage.band)
+            )
+            .foregroundStyle(run.stage.color)
         }
+        .chartYScale(domain: 0...3)
         .frame(height: 120)
-        .background(Color(white: 0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
         .accessibilityLabel("Hypnogram")
     }
 }

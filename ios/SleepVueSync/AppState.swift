@@ -41,6 +41,14 @@ final class AppState: ObservableObject {
     private static let healthEnabledKey = "sleepvue.healthExportEnabled"
     private static let healthExportedKey = "sleepvue.healthExportedDateKeys"
     private static let pruneEnabledKey = "sleepvue.pruneAfterSync"
+    private static let deletedKey = "sleepvue.deletedDateKeys"
+
+    /// dateKeys the user deleted — never sync these again, even if the file
+    /// is still on the watch (e.g. watch was offline at delete time).
+    private var deletedDateKeys: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: Self.deletedKey) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: Self.deletedKey) }
+    }
 
     /// dateKeys (as strings) already pushed to HealthKit. Local marker only —
     /// the sync identifiers make Health-side duplicates impossible anyway.
@@ -93,9 +101,10 @@ final class AppState: ObservableObject {
             let entries = try await client.listDir(Self.watchDir + "/")
             let nightFiles = entries.filter { NightStore.dateKey(fromFileName: $0.name) != nil }
             let known = store.storedDateKeys()
+            let tombstoned = deletedDateKeys
             let newFiles = nightFiles.filter { entry in
                 guard let key = NightStore.dateKey(fromFileName: entry.name) else { return false }
-                return !known.contains(key)
+                return !known.contains(key) && !tombstoned.contains(key)
             }
 
             var downloaded: [Night] = []
@@ -215,9 +224,27 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Delete a night everywhere we can: local copy, watch copy (if the
+    /// watch is connected right now), and tombstone the date so it never
+    /// re-syncs. Health data already exported stays (write-only access).
     func delete(_ night: Night) {
+        let key = String(night.header.dateKey)
         try? store.delete(night)
+
+        var tombstones = deletedDateKeys
+        tombstones.insert(key)
+        deletedDateKeys = tombstones
+
+        var exported = exportedDateKeys
+        exported.remove(key)
+        exportedDateKeys = exported
+
         reloadLocal()
+
+        if client.phase == .ready {
+            let path = Self.watchDir + "/slp_\(night.header.dateKey).bin"
+            Task { try? await client.deleteFile(path) }
+        }
     }
 
     private func describe(_ error: Error) -> String {

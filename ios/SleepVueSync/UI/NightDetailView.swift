@@ -106,16 +106,21 @@ struct NightDetailView: View {
 
     // MARK: - Charts
 
+    /// One time domain for all panels — with hidden y-axes everywhere this
+    /// makes the plot areas identical, so the charts align vertically.
+    private var xDomain: ClosedRange<Date> { night.bed...night.wake }
+
     private var hypnogramSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Sleep stages").font(.headline)
             HypnogramView(night: night)
+                .sleepChartXAxis(xDomain)
         }
     }
 
     private var hrSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Heart rate").font(.headline)
+            Text("Heart rate · \(night.hrMin)–\(night.hrMax) bpm").font(.headline)
             Chart(night.epochs.filter { $0.hr > 0 }, id: \.date) { epoch in
                 LineMark(
                     x: .value("Time", epoch.date),
@@ -125,6 +130,7 @@ struct NightDetailView: View {
             .chartYScale(domain: .automatic(includesZero: false))
             .foregroundStyle(Color(red: 0.88, green: 0.33, blue: 0.44))
             .frame(height: 160)
+            .sleepChartXAxis(xDomain)
         }
     }
 
@@ -139,6 +145,7 @@ struct NightDetailView: View {
             }
             .foregroundStyle(Color(red: 0.78, green: 0.71, blue: 0.35))
             .frame(height: 100)
+            .sleepChartXAxis(xDomain)
         }
     }
 }

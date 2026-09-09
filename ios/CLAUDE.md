@@ -28,6 +28,11 @@ Read `../AGENTS.md` first (repo-wide rules). Full human documentation:
 - Never DELETE `slp_cur.bin`, `slp_last.bin`, or `slp_idx.bin` on the
   watch; only archived `slp_YYYYMMDD.bin` files, and only after verified
   transfer (+ Health export when enabled).
+- User-deleted nights are tombstoned in `deletedDateKeys` and must never
+  re-sync; `AppState.delete` only ever removes the archive file on the
+  watch (best-effort, when connected).
+- All night-detail charts must use `sleepChartXAxis(_:)` with the same
+  domain — that shared plot geometry is what keeps the panels aligned.
 - Watch discovery order: saved identifier →
   `retrieveConnectedPeripherals` → scan. The watch never advertises while
   iOS holds its ANCS link; a scan-only implementation is a regression.
