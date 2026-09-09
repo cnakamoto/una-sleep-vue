@@ -21,8 +21,9 @@ struct SleepChartXAxis: ViewModifier {
             .chartXAxis {
                 AxisMarks(values: .stride(by: .hour)) { _ in
                     AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                    // Two-digit 24-hour hours only ("23", "00", "06") — no minutes.
                     AxisValueLabel(
-                        format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)
+                        format: .dateTime.hour(.twoDigits(amPM: .omitted))
                     )
                 }
             }
