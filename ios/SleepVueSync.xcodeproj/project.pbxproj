@@ -21,6 +21,7 @@
 		AA000000000000000000020E /* BackgroundSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010E /* BackgroundSync.swift */; };
 		AA000000000000000000020F /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010F /* DebugLog.swift */; };
 		AA0000000000000000000210 /* SleepChartStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000110 /* SleepChartStyle.swift */; };
+		AA0000000000000000000212 /* TombstoneStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000112 /* TombstoneStore.swift */; };
 		AA0000000000000000000211 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000111 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -43,6 +44,7 @@
 		AA000000000000000000010F /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		AA0000000000000000000110 /* SleepChartStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepChartStyle.swift; sourceTree = "<group>"; };
 		AA0000000000000000000111 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA0000000000000000000112 /* TombstoneStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TombstoneStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -111,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000106 /* NightStore.swift */,
+				AA0000000000000000000112 /* TombstoneStore.swift */,
 				AA000000000000000000010F /* DebugLog.swift */,
 			);
 			path = Storage;
@@ -211,6 +214,7 @@
 				AA0000000000000000000204 /* FTSClient.swift in Sources */,
 				AA0000000000000000000205 /* NightFile.swift in Sources */,
 				AA0000000000000000000206 /* NightStore.swift in Sources */,
+				AA0000000000000000000212 /* TombstoneStore.swift in Sources */,
 				AA0000000000000000000207 /* ContentView.swift in Sources */,
 				AA0000000000000000000208 /* NightDetailView.swift in Sources */,
 				AA0000000000000000000209 /* HypnogramView.swift in Sources */,
@@ -357,7 +361,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.7.1;
+				MARKETING_VERSION = 0.8.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sleepvue.sync;
 				PRODUCT_NAME = SleepVue;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -383,7 +387,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.7.1;
+				MARKETING_VERSION = 0.8.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sleepvue.sync;
 				PRODUCT_NAME = SleepVue;
 				SWIFT_EMIT_LOC_STRINGS = YES;

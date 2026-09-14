@@ -26,6 +26,8 @@ struct SleepVueSyncApp: App {
         .onChange(of: scenePhase) {
             if scenePhase == .background {
                 BackgroundSync.schedule()
+            } else if scenePhase == .active {
+                Task { await state.refreshBackup() }
             }
         }
     }

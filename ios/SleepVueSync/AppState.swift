@@ -31,23 +31,30 @@ final class AppState: ObservableObject {
     // are unaffected (the GUI reads slp_last/slp_idx, never the archives).
     @Published private(set) var pruneAfterSync: Bool
 
+    // iCloud backup: true when the night store lives in the iCloud Drive
+    // container. Status display only — writes to the container ARE the
+    // backup, there is nothing to push manually.
+    @Published private(set) var backupAvailable = false
+
     /// SleepVue stores its nights in its app-private dir, visible over FTS here.
     static let watchDir = "/Apps/SleepVue"
 
     private let store = NightStore()
+    private let tombstoneStore = TombstoneStore()
     private let health = HealthKitExporter()
     private var cancellables: Set<AnyCancellable> = []
 
     private static let healthEnabledKey = "sleepvue.healthExportEnabled"
     private static let healthExportedKey = "sleepvue.healthExportedDateKeys"
     private static let pruneEnabledKey = "sleepvue.pruneAfterSync"
+    /// Legacy UserDefaults tombstone list (≤ v0.7.1) — migration source only.
     private static let deletedKey = "sleepvue.deletedDateKeys"
 
     /// dateKeys the user deleted — never sync these again, even if the file
-    /// is still on the watch (e.g. watch was offline at delete time).
+    /// is still on the watch (e.g. watch was offline at delete time). Backed
+    /// up via iCloud KVS so deletions survive an app reinstall.
     private var deletedDateKeys: Set<String> {
-        get { Set(UserDefaults.standard.stringArray(forKey: Self.deletedKey) ?? []) }
-        set { UserDefaults.standard.set(Array(newValue), forKey: Self.deletedKey) }
+        tombstoneStore.all()
     }
 
     /// dateKeys (as strings) already pushed to HealthKit. Local marker only —
@@ -65,6 +72,54 @@ final class AppState: ObservableObject {
         client.objectWillChange
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
+
+        tombstoneStore.migrate(fromUserDefaultsKey: Self.deletedKey)
+
+        // iCloud arrivals: nights restored onto a fresh install, or files
+        // removed elsewhere — reload, then let tombstones win.
+        store.onRemoteChange = { [weak self] in
+            Task { @MainActor in
+                self?.reloadLocal()
+                self?.reconcileTombstones()
+            }
+        }
+        // Tombstones synced from iCloud (fresh install, or a delete made on
+        // another device) — remove any matching local nights.
+        NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.reconcileTombstones() }
+        }
+
+        reloadLocal()
+
+        // Move the store into iCloud (migrating any existing nights) before
+        // the first sync, so downloads land directly in the backup.
+        Task {
+            await store.activateICloudIfAvailable()
+            backupAvailable = store.usingICloud
+            reconcileTombstones()
+            reloadLocal()
+        }
+    }
+
+    /// Re-check iCloud on returning to the foreground — picks up an account
+    /// sign-in that happened while the app was running.
+    func refreshBackup() async {
+        await store.activateICloudIfAvailable()
+        backupAvailable = store.usingICloud
+    }
+
+    /// Tombstones always win, eventually: a night that was re-fetched over
+    /// BLE before its tombstone arrived from iCloud (or deleted on another
+    /// device) is removed locally as soon as the tombstone shows up.
+    private func reconcileTombstones() {
+        let tombstoned = deletedDateKeys
+        let stale = nights.filter { tombstoned.contains(String($0.header.dateKey)) }
+        guard !stale.isEmpty else { return }
+        for night in stale { try? store.delete(night) }
         reloadLocal()
     }
 
@@ -224,16 +279,15 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Delete a night everywhere we can: local copy, watch copy (if the
-    /// watch is connected right now), and tombstone the date so it never
-    /// re-syncs. Health data already exported stays (write-only access).
+    /// Delete a night everywhere we can: local copy (which also removes the
+    /// iCloud backup copy — delete means delete), watch copy (if the watch
+    /// is connected right now), and tombstone the date so it never re-syncs.
+    /// Health data already exported stays (write-only access).
     func delete(_ night: Night) {
         let key = String(night.header.dateKey)
         try? store.delete(night)
 
-        var tombstones = deletedDateKeys
-        tombstones.insert(key)
-        deletedDateKeys = tombstones
+        tombstoneStore.insert(key)
 
         var exported = exportedDateKeys
         exported.remove(key)

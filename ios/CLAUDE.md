@@ -28,9 +28,18 @@ Read `../AGENTS.md` first (repo-wide rules). Full human documentation:
 - Never DELETE `slp_cur.bin`, `slp_last.bin`, or `slp_idx.bin` on the
   watch; only archived `slp_YYYYMMDD.bin` files, and only after verified
   transfer (+ Health export when enabled).
-- User-deleted nights are tombstoned in `deletedDateKeys` and must never
-  re-sync; `AppState.delete` only ever removes the archive file on the
-  watch (best-effort, when connected).
+- User-deleted nights are tombstoned and must never re-sync;
+  `AppState.delete` only ever removes the archive file on the watch
+  (best-effort, when connected). Since v0.8.0 tombstones live in iCloud KVS
+  (`TombstoneStore`, one key per dateKey) so deletions survive reinstall —
+  never reintroduce a local-only tombstone store, and keep the
+  tombstones-win reconcile (`AppState.reconcileTombstones`) wired to both
+  KVS external-change and NightStore container arrivals.
+- iCloud must never gate the BLE pipeline: `NightStore` falls back to
+  `Documents/SleepNights/` when signed out, and `storedDateKeys()` only
+  sees downloaded files (a BLE re-fetch racing a restore is harmless —
+  byte-identical content). Backup is mirrored: deleting a night deletes
+  the backup copy too.
 - All night-detail charts must use `sleepChartXAxis(_:)` with the same
   domain — that shared plot geometry is what keeps the panels aligned.
 - Watch discovery order: saved identifier →

@@ -9,10 +9,12 @@ design doc — keep it current when behavior changes.
 iPhone companion app: `ios/` (SwiftUI; BLE FTS sync per
 `una-sdk/Docs/BLE-File-Transfer-Service.md`, CTS clock write on connect,
 opt-in DELETE-after-sync prune, write-only HealthKit export, BGAppRefresh
-background sync). Full app docs: `ios/README.md`; agent notes:
-`ios/CLAUDE.md`. Debug: persisted BLE log at Documents/ble-debug.log on
-the phone (also shown in-app); trigger a test refresh from the debugger
-with `_simulateLaunchForTaskWithIdentifier:@"com.sleepvue.sync.refresh"`.
+background sync, iCloud Drive backup of nights + tombstones since v0.8.0 —
+see `docs/adr/0003-icloud-backup.md`). Full app docs: `ios/README.md`;
+agent notes: `ios/CLAUDE.md`. Debug: persisted BLE log at
+Documents/ble-debug.log on the phone (also shown in-app); trigger a test
+refresh from the debugger with
+`_simulateLaunchForTaskWithIdentifier:@"com.sleepvue.sync.refresh"`.
 Key facts: watch discovery must go through
 `retrieveConnectedPeripherals` (iOS holds an ANCS link, so the watch
 never advertises); SLP1 parser changes must keep passing

@@ -48,6 +48,21 @@ struct ContentView: View {
                     Text("Archived nights are removed from the watch only after a verified transfer. The watch keeps its own on-device summaries and history.")
                 }
 
+                Section {
+                    HStack {
+                        Text("iCloud Backup")
+                        Spacer()
+                        Text(state.backupAvailable ? "On" : "Off")
+                            .foregroundStyle(state.backupAvailable ? .green : .secondary)
+                    }
+                } footer: {
+                    if state.backupAvailable {
+                        Text("Nights and deletions are backed up to your Apple account and restore automatically if the app is reinstalled. Files are visible under iCloud Drive ▸ SleepVue in the Files app.")
+                    } else {
+                        Text("Sign in to iCloud on this iPhone to back up nights and deletions to your Apple account.")
+                    }
+                }
+
                 Section("Synced nights") {
                     if state.nights.isEmpty {
                         Text("No nights yet. Connect and sync to pull sleep data from your watch.")
@@ -112,7 +127,7 @@ struct ContentView: View {
                 }
                 Button("Cancel", role: .cancel) { nightPendingDelete = nil }
             } message: {
-                Text("Removes it from this phone and stops it from syncing again. "
+                Text("Removes it from this phone and your iCloud backup, and stops it from syncing again. "
                     + "If the watch is connected, its copy is deleted too. "
                     + "Anything already exported stays in Apple Health (SleepVue has write-only access).")
             }
