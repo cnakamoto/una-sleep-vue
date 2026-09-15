@@ -27,7 +27,8 @@ final class NightStore {
     private(set) var usingICloud = false
 
     /// Local fallback; also where pre-iCloud installs keep their nights.
-    private var localDirectory: URL {
+    /// Static so init() can use it before self is fully initialized.
+    private static var localDirectory: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("SleepNights", isDirectory: true)
     }
@@ -41,7 +42,7 @@ final class NightStore {
     private var queryObservers: [NSObjectProtocol] = []
 
     init() {
-        directory = localDirectory
+        directory = Self.localDirectory
     }
 
     deinit {
@@ -93,9 +94,9 @@ final class NightStore {
     /// are byte-identical, and single-device tombstone sets can't diverge.
     private func migrateLocalNights(into cloudDirectory: URL) {
         let fm = FileManager.default
-        let names = (try? fm.contentsOfDirectory(atPath: localDirectory.path)) ?? []
+        let names = (try? fm.contentsOfDirectory(atPath: Self.localDirectory.path)) ?? []
         for name in names where (name.hasPrefix("slp_") && name.hasSuffix(".bin")) || name == TombstoneStore.fileName {
-            let source = localDirectory.appendingPathComponent(name)
+            let source = Self.localDirectory.appendingPathComponent(name)
             let destination = cloudDirectory.appendingPathComponent(name)
             if fm.fileExists(atPath: destination.path) {
                 try? fm.removeItem(at: source)

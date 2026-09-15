@@ -69,14 +69,17 @@ final class AppState: ObservableObject {
     init() {
         healthExportEnabled = UserDefaults.standard.bool(forKey: Self.healthEnabledKey)
         pruneAfterSync = UserDefaults.standard.bool(forKey: Self.pruneEnabledKey)
+
+        // After this assignment every stored property is initialized and
+        // self is fully usable (closures below capture it).
+        tombstoneStore = TombstoneStore(directory: { [store] in store.directory })
+        tombstoneStore.migrate(fromUserDefaultsKey: Self.deletedKey)
+
         // Surface FTSClient's @Published changes through AppState so views
         // only need to observe one object.
         client.objectWillChange
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
-
-        tombstoneStore = TombstoneStore(directory: { [store] in store.directory })
-        tombstoneStore.migrate(fromUserDefaultsKey: Self.deletedKey)
 
         // iCloud arrivals: nights restored onto a fresh install, or files
         // removed elsewhere — reload, then let tombstones win.

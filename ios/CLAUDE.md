@@ -5,12 +5,21 @@ Read `../AGENTS.md` first (repo-wide rules). Full human documentation:
 
 ## Verify changes without the Xcode GUI
 
-- **Typecheck (primary gate):**
+- **Typecheck (fast gate):**
   ```bash
   SIM_SDK=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk
-  swiftc -sdk "$SIM_SDK" -target arm64-apple-ios17.0-simulator -typecheck \
-    ios/SleepVueSync/**/*.swift ios/SleepVueSync/*.swift
+  swiftc -sdk "$SIM_SDK" -target arm64-apple-ios17.0-simulator -typecheck ios/SleepVueSync/**/*.swift
   ```
+- **Full compile (run before handing to Xcode — `-typecheck` misses
+  definite-initialization errors, e.g. self captured in init before all
+  stored properties are set):**
+  ```bash
+  swiftc -sdk "$SIM_SDK" -target arm64-apple-ios17.0-simulator \
+    -emit-module -emit-library -module-name SleepVueSync \
+    -o /tmp/libSleepVueSync.dylib ios/SleepVueSync/**/*.swift
+  ```
+  (Ignore the `sysroot`/`search path` linker warnings — CLI environment
+  noise, not code issues.)
 - **Parser gate:** rebuild and run ParserCheck (see README §Debugging) —
   parser output must stay byte-exact against `tools/plot_night.py` and
   `zlib.crc32` on `nights/*.bin`.
