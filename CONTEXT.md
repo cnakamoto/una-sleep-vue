@@ -55,16 +55,16 @@ tombstones themselves are part of what the Backup preserves.
 _Avoid_: deleted list
 
 **Backup**:
-The off-device replica of the user's nights and tombstones, keyed to the
-user's Apple account, so that deleting and reinstalling the app (or losing
-the phone) does not lose sleep history. Mirrored, not append-only: deleting
-a night deletes its backup copy too.
+A copy of the user's nights and tombstones outside the app's own storage,
+so that deleting and reinstalling the app (or losing the phone) does not
+lose sleep history. Currently a folder the user exports to a location of
+their choosing (e.g. iCloud Drive); deletions recorded in it are honored
+on restore — a tombstone always beats a copied night file.
 _Avoid_: archive (implies append-only), sync — "sync" already means the BLE
-transfer from watch to phone; the backup is phone to cloud
+transfer from watch to phone; the backup is phone to elsewhere
 
 **Restore**:
-The automatic recovery of nights and tombstones from the Backup onto a fresh
-install of the app. Unprompted — the user's own history simply reappears.
-If a watch sync races the backup's arrival, tombstones always win,
-eventually.
-_Avoid_: import, recovery
+The recovery of nights and tombstones from a Backup onto a fresh install
+of the app, by importing the backup folder. If a watch sync races the
+restore, tombstones always win, eventually.
+_Avoid_: recovery

@@ -21,8 +21,10 @@
 		AA000000000000000000020E /* BackgroundSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010E /* BackgroundSync.swift */; };
 		AA000000000000000000020F /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010F /* DebugLog.swift */; };
 		AA0000000000000000000210 /* SleepChartStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000110 /* SleepChartStyle.swift */; };
-		AA0000000000000000000212 /* TombstoneStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000112 /* TombstoneStore.swift */; };
 		AA0000000000000000000211 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000111 /* Assets.xcassets */; };
+		AA0000000000000000000212 /* TombstoneStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000112 /* TombstoneStore.swift */; };
+		AA0000000000000000000213 /* BackupTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000113 /* BackupTransfer.swift */; };
+		AA0000000000000000000214 /* FolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000114 /* FolderPicker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +47,8 @@
 		AA0000000000000000000110 /* SleepChartStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepChartStyle.swift; sourceTree = "<group>"; };
 		AA0000000000000000000111 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA0000000000000000000112 /* TombstoneStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TombstoneStore.swift; sourceTree = "<group>"; };
+		AA0000000000000000000113 /* BackupTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupTransfer.swift; sourceTree = "<group>"; };
+		AA0000000000000000000114 /* FolderPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderPicker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -114,17 +118,10 @@
 			children = (
 				AA0000000000000000000106 /* NightStore.swift */,
 				AA0000000000000000000112 /* TombstoneStore.swift */,
+				AA0000000000000000000113 /* BackupTransfer.swift */,
 				AA000000000000000000010F /* DebugLog.swift */,
 			);
 			path = Storage;
-			sourceTree = "<group>";
-		};
-		AA0000000000000000000014 /* Health */ = {
-			isa = PBXGroup;
-			children = (
-				AA000000000000000000010B /* HealthKitExporter.swift */,
-			);
-			path = Health;
 			sourceTree = "<group>";
 		};
 		AA000000000000000000000A /* UI */ = {
@@ -135,8 +132,17 @@
 				AA0000000000000000000109 /* HypnogramView.swift */,
 				AA000000000000000000010A /* Formatters.swift */,
 				AA0000000000000000000110 /* SleepChartStyle.swift */,
+				AA0000000000000000000114 /* FolderPicker.swift */,
 			);
 			path = UI;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000014 /* Health */ = {
+			isa = PBXGroup;
+			children = (
+				AA000000000000000000010B /* HealthKitExporter.swift */,
+			);
+			path = Health;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -215,6 +221,7 @@
 				AA0000000000000000000205 /* NightFile.swift in Sources */,
 				AA0000000000000000000206 /* NightStore.swift in Sources */,
 				AA0000000000000000000212 /* TombstoneStore.swift in Sources */,
+				AA0000000000000000000213 /* BackupTransfer.swift in Sources */,
 				AA0000000000000000000207 /* ContentView.swift in Sources */,
 				AA0000000000000000000208 /* NightDetailView.swift in Sources */,
 				AA0000000000000000000209 /* HypnogramView.swift in Sources */,
@@ -223,6 +230,7 @@
 				AA000000000000000000020E /* BackgroundSync.swift in Sources */,
 				AA000000000000000000020F /* DebugLog.swift in Sources */,
 				AA0000000000000000000210 /* SleepChartStyle.swift in Sources */,
+				AA0000000000000000000214 /* FolderPicker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

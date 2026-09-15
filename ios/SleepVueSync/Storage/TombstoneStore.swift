@@ -2,39 +2,63 @@
 //  TombstoneStore.swift
 //  SleepVueSync
 //
-//  Tombstones — dateKeys of nights the user deleted — live in iCloud's
-//  ubiquitous key-value store, one key per night ("tombstone.20260903").
-//  They survive app deletion/reinstall with the user's Apple account, so a
-//  deleted night stays deleted; per-key storage union-merges across
-//  devices, so a delete anywhere becomes a delete everywhere, eventually.
-//  (1 MB KVS limit ÷ ~15 bytes per tombstone = decades of headroom.)
+//  Tombstones — dateKeys of nights the user deleted — live in
+//  tombstones.json inside the night-store directory, so the store folder
+//  is a complete backup unit: nights and deletions travel together
+//  through export/import (and, later, through the iCloud container once a
+//  paid developer account enables it — see docs/adr/0004). A tombstoned
+//  night must never reappear, so imports union tombstones before copying
+//  any night files.
+//
+//  File format: a JSON array of dateKeys, e.g. ["20260903","20260904"].
 //
 
 import Foundation
 
 final class TombstoneStore {
 
-    private static let keyPrefix = "tombstone."
+    static let fileName = "tombstones.json"
 
-    private let store = NSUbiquitousKeyValueStore.default
+    /// Resolves the current store directory (NightStore may switch it
+    /// between Documents and the iCloud container).
+    private let directoryProvider: () -> URL
 
-    /// All tombstoned dateKeys currently known (local + synced from iCloud).
+    init(directory: @escaping () -> URL) {
+        directoryProvider = directory
+    }
+
+    private var fileURL: URL {
+        directoryProvider().appendingPathComponent(Self.fileName)
+    }
+
+    /// All tombstoned dateKeys.
     func all() -> Set<String> {
-        Set(store.dictionaryRepresentation.keys.compactMap { key in
-            guard key.hasPrefix(Self.keyPrefix) else { return nil }
-            return String(key.dropFirst(Self.keyPrefix.count))
-        })
+        guard let data = try? Data(contentsOf: fileURL),
+              let keys = try? JSONDecoder().decode([String].self, from: data)
+        else { return [] }
+        return Set(keys)
     }
 
     func insert(_ dateKey: String) {
-        store.set(true, forKey: Self.keyPrefix + dateKey)
+        write(all().union([dateKey]))
+    }
+
+    /// Merge tombstones from a backup. Union only — importing never
+    /// un-deletes.
+    func union(_ dateKeys: Set<String>) {
+        write(all().union(dateKeys))
     }
 
     /// One-time migration from the UserDefaults list used up to v0.7.1.
     func migrate(fromUserDefaultsKey defaultsKey: String) {
         let defaults = UserDefaults.standard
         guard let legacy = defaults.stringArray(forKey: defaultsKey) else { return }
-        for dateKey in legacy { insert(dateKey) }
+        union(Set(legacy))
         defaults.removeObject(forKey: defaultsKey)
+    }
+
+    private func write(_ keys: Set<String>) {
+        guard let data = try? JSONEncoder().encode(keys.sorted()) else { return }
+        try? data.write(to: fileURL, options: .atomic)
     }
 }

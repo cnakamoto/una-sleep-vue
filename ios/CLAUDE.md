@@ -30,16 +30,22 @@ Read `../AGENTS.md` first (repo-wide rules). Full human documentation:
   transfer (+ Health export when enabled).
 - User-deleted nights are tombstoned and must never re-sync;
   `AppState.delete` only ever removes the archive file on the watch
-  (best-effort, when connected). Since v0.8.0 tombstones live in iCloud KVS
-  (`TombstoneStore`, one key per dateKey) so deletions survive reinstall —
-  never reintroduce a local-only tombstone store, and keep the
-  tombstones-win reconcile (`AppState.reconcileTombstones`) wired to both
-  KVS external-change and NightStore container arrivals.
-- iCloud must never gate the BLE pipeline: `NightStore` falls back to
-  `Documents/SleepNights/` when signed out, and `storedDateKeys()` only
-  sees downloaded files (a BLE re-fetch racing a restore is harmless —
-  byte-identical content). Backup is mirrored: deleting a night deletes
-  the backup copy too.
+  (best-effort, when connected). Since v0.8.0 tombstones live in
+  `tombstones.json` inside the store directory (`TombstoneStore`) so they
+  travel with backups — never reintroduce a UserDefaults-only store, and
+  keep the tombstones-win reconcile (`AppState.reconcileTombstones`)
+  wired to backup import and NightStore container arrivals.
+- Backup is manual export/import (`BackupTransfer` + document picker)
+  because free developer teams can't use the iCloud entitlement
+  (docs/adr/0004). Do NOT re-add the iCloud entitlements until a paid
+  Developer account exists — builds stop signing. The automatic mode in
+  `NightStore` (ubiquity container) is intentionally dormant and must
+  stay entitlement-free-safe: `url(forUbiquityContainerIdentifier:)`
+  returns nil → `Documents/SleepNights/` fallback.
+- iCloud must never gate the BLE pipeline: `storedDateKeys()` only sees
+  downloaded files (a BLE re-fetch racing a restore is harmless —
+  byte-identical content). Import unions tombstones before copying
+  nights and never imports a tombstoned night.
 - All night-detail charts must use `sleepChartXAxis(_:)` with the same
   domain — that shared plot geometry is what keeps the panels aligned.
 - Watch discovery order: saved identifier →

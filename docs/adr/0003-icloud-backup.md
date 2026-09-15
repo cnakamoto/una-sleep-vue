@@ -1,5 +1,10 @@
 # iCloud backup for the iOS companion app
 
+**Status**: accepted, but dormant since v0.8.0 — automatic mode requires a
+paid Apple Developer account (free teams can't use the iCloud
+entitlement); superseded in practice by ADR-0004's manual export/import
+until then.
+
 The iOS app's founding principle was "no account, no server, no network
 access — everything stays on the phone," but that meant deleting the app
 (or losing the phone) destroyed all synced nights, and with

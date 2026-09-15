@@ -31,16 +31,18 @@ final class AppState: ObservableObject {
     // are unaffected (the GUI reads slp_last/slp_idx, never the archives).
     @Published private(set) var pruneAfterSync: Bool
 
-    // iCloud backup: true when the night store lives in the iCloud Drive
-    // container. Status display only — writes to the container ARE the
-    // backup, there is nothing to push manually.
+    // Backup: manual export/import via the document picker (free developer
+    // teams can't use the iCloud entitlement — see docs/adr/0004).
+    // backupAvailable tracks the dormant automatic mode: true if the night
+    // store lives in the iCloud Drive container (needs a paid account).
     @Published private(set) var backupAvailable = false
+    @Published private(set) var backupNote = ""
 
     /// SleepVue stores its nights in its app-private dir, visible over FTS here.
     static let watchDir = "/Apps/SleepVue"
 
     private let store = NightStore()
-    private let tombstoneStore = TombstoneStore()
+    private let tombstoneStore: TombstoneStore
     private let health = HealthKitExporter()
     private var cancellables: Set<AnyCancellable> = []
 
@@ -73,6 +75,7 @@ final class AppState: ObservableObject {
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
+        tombstoneStore = TombstoneStore(directory: { [store] in store.directory })
         tombstoneStore.migrate(fromUserDefaultsKey: Self.deletedKey)
 
         // iCloud arrivals: nights restored onto a fresh install, or files
@@ -121,6 +124,54 @@ final class AppState: ObservableObject {
         guard !stale.isEmpty else { return }
         for night in stale { try? store.delete(night) }
         reloadLocal()
+    }
+
+    /// Export nights + tombstones into a "SleepVue Backup" folder inside a
+    /// user-picked folder (e.g. iCloud Drive — reachable without the iCloud
+    /// entitlement thanks to the document picker).
+    func exportBackup(to folder: URL) {
+        guard folder.startAccessingSecurityScopedResource() else {
+            backupNote = "Couldn't access that folder"
+            return
+        }
+        defer { folder.stopAccessingSecurityScopedResource() }
+        do {
+            let written = try BackupTransfer.writeBackup(of: store.directory, into: folder)
+            backupNote = "Exported \(written) file(s) to \(BackupTransfer.backupFolderName)"
+            DebugLog.write("backup exported: \(written) file(s)")
+        } catch {
+            backupNote = "Export failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Restore from a user-picked backup folder: union its tombstones
+    /// first (deletions in the backup are honored, never resurrected),
+    /// then save the nights we don't have. Anything already tombstoned
+    /// gets removed by the reconcile.
+    func importBackup(from folder: URL) {
+        guard folder.startAccessingSecurityScopedResource() else {
+            backupNote = "Couldn't access that folder"
+            return
+        }
+        defer { folder.stopAccessingSecurityScopedResource() }
+        do {
+            let result = try BackupTransfer.readBackup(
+                at: folder,
+                existing: store.storedDateKeys(),
+                tombstoned: deletedDateKeys
+            )
+            tombstoneStore.union(result.tombstones)
+            for (fileName, data) in result.nights {
+                try store.save(data, fileName: fileName)
+            }
+            backupNote = "Imported \(result.nights.count) night(s)"
+                + (result.tombstones.isEmpty ? "" : " · \(result.tombstones.count) deletion(s)")
+            DebugLog.write("backup imported: \(result.nights.count) night(s)")
+            reloadLocal()
+            reconcileTombstones()
+        } catch {
+            backupNote = error.localizedDescription
+        }
     }
 
     func reloadLocal() {

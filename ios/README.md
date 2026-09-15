@@ -4,12 +4,11 @@ iPhone companion app for a UNA Watch running the
 [SleepVue](../SleepVue/ARCHITECTURE.md) sleep-tracking app. It downloads
 recorded nights over Bluetooth LE, renders hypnogram / heart-rate / movement
 charts, writes sleep to Apple Health, keeps the watch clock in sync, can
-prune transferred nights off the watch, backs nights up to the user's
-iCloud account, and syncs periodically in the background.
+prune transferred nights off the watch, exports manual backups (e.g. to
+iCloud Drive), and syncs periodically in the background.
 
-No account and no server of ours: watch traffic is BLE-only, and the only
-network traffic is iCloud syncing your own nights to your own Apple
-account.
+No account and no server of ours: watch traffic is BLE-only, and backups
+go only where you choose to put them.
 
 ## Features
 
@@ -25,7 +24,7 @@ account.
 | Delete a night | v0.7.0 | Swipe → confirm; tombstoned so it never re-syncs; watch copy removed when connected |
 | Aligned chart time axes | v0.7.0 | Shared x domain, hourly gridlines across all panels |
 | App icon | v0.7.0 | Zz glyph matching the watch app icon (`tools/make_ios_icon.py`) |
-| iCloud backup | v0.8.0 | Nights + deletions survive app deletion/reinstall; automatic restore |
+| Backup export/import | v0.8.0 | Nights + deletions survive app deletion/reinstall; manual folder picker (automatic iCloud backup deferred — needs a paid Developer account, see `docs/adr/0004`) |
 
 ## Requirements
 
@@ -34,9 +33,10 @@ account.
   FTS protocol v4/v5 auto-negotiated).
 - Xcode 15+ to build. **A physical device is required** — the Simulator
   has no Bluetooth.
-- A **paid Apple Developer account** for the HealthKit capability. With
-  free provisioning, Xcode will refuse to sign once the HealthKit
-  entitlement is present.
+- A free ("personal team") Apple account signs and runs everything,
+  HealthKit included. A **paid Developer account** would only be needed
+  for the deferred automatic iCloud backup (free teams can't use the
+  iCloud capability — `docs/adr/0004`).
 
 ## Build & run
 
@@ -119,33 +119,32 @@ LIGHT → `.asleepCore`, DEEP → `.asleepDeep`, attributed to device
 night + run, so re-exports are no-ops and **duplicates are impossible**.
 Results appear under Health → Browse → Sleep with SleepVue as the source.
 
-### iCloud backup and restore
+### Backup and restore (manual export)
 
-When the iPhone is signed into iCloud, the night store lives in the app's
-iCloud Drive container (visible in Files ▸ iCloud Drive ▸ SleepVue) instead
-of the app-private Documents folder — so **writing a night file is the
-backup**; there is no separate upload step or "back up now" button. The
-folder is user-visible on purpose: you can verify the backup, and pull a
-`.bin` onto your Mac for `tools/plot_night.py`.
+**Export backup…** writes a `SleepVue Backup/` folder into any folder you
+pick — iCloud Drive, Dropbox, a Mac over AirDrop — containing the raw
+`slp_YYYYMMDD.bin` night files plus `tombstones.json` (the record of
+nights you deleted). **Import backup…** restores from that folder after a
+reinstall. The document picker is used deliberately: it reaches iCloud
+Drive *without* the iCloud entitlement, which free "personal team"
+developer accounts can't use (see
+[`docs/adr/0004`](../docs/adr/0004-manual-backup-free-team.md)) — that's
+also why backups are manual rather than automatic.
 
-- **Restore is automatic**: on a fresh install the backed-up nights appear
-  in the container and download on their own (~4 KB each).
-- **Deletions are backed up too**: tombstones live in iCloud's ubiquitous
-  key-value store (one key per night), so a night you deleted stays deleted
-  across a reinstall — it can't re-sync from the watch. Backup is
-  **mirrored**, not append-only: deleting a night deletes the backup copy.
-- **Tombstones always win, eventually**: if a watch sync races the iCloud
-  restore on a fresh install and re-downloads a deleted night, it's removed
-  again when the tombstone arrives.
-- Signed out of iCloud, the store falls back to plain `Documents/` exactly
-  as before (status row shows "Off"), and migrates into the container when
-  iCloud becomes available. Settings and the debug log are never backed up.
-- Multiple devices on one Apple account are tolerated (immutable files
-  named by date, union-merged tombstones) but not a supported configuration.
-
-Requires the iCloud capability (Documents + key-value store) on the App ID —
-with automatic signing, Xcode registers it on the first build after this
-change; a paid Developer account was already required for HealthKit.
+- **Deletions are part of the backup**: import unions the backup's
+  tombstones first and never imports a tombstoned night, so restoring
+  can't resurrect anything you deleted. A tombstoned night that re-syncs
+  from the watch is removed again as soon as the tombstone lands.
+- **Nights are validated on import** (same SLP1 parser as the BLE
+  pipeline) and existing nights are never overwritten.
+- The backup folder is plain files on purpose: verify it in Files, or
+  pull a `.bin` onto your Mac for `tools/plot_night.py`.
+- Settings and the debug log are never backed up; Health data lives in
+  Apple Health (which survives reinstall on its own).
+- The automatic variant (store lives directly in the iCloud container,
+  restore with zero taps) is designed and kept in the code, dormant —
+  it activates once a paid Developer account makes the iCloud
+  entitlement signable.
 
 ### Watch clock sync (CTS)
 
@@ -184,8 +183,9 @@ ios/
 │   ├── Model/NightFile.swift      SLP1 parser + stage runs (Foundation-only)
 │   ├── Storage/
 │   │   ├── NightStore.swift       night persistence — iCloud Drive container when
-│   │   │                          signed in, Documents/SleepNights/ fallback
-│   │   ├── TombstoneStore.swift   deleted-night tombstones in iCloud KVS
+│   │   │                          entitled (dormant), Documents/SleepNights/ now
+│   │   ├── TombstoneStore.swift   deleted-night tombstones (tombstones.json)
+│   │   ├── BackupTransfer.swift   manual backup export/import (Foundation-only)
 │   │   └── DebugLog.swift         persistent rolling log (Documents/ble-debug.log)
 │   ├── Health/HealthKitExporter.swift
 │   └── UI/                        ContentView, NightDetailView, HypnogramView, Formatters
@@ -235,16 +235,16 @@ swiftc -sdk "$SIM_SDK" -target arm64-apple-ios17.0-simulator -typecheck ios/Slee
 | CRC mismatch after transfer | Interference/range — move closer, sync again. Data was not saved. |
 | Nights not in Apple Health | Toggle is on but permission denied → Settings → Health → Data Access & Devices → SleepVue. Status shows under the toggle. |
 | Background sync never fires | Expected: iOS controls cadence. Force-quit disables it entirely. Verify with the `_simulateLaunchForTaskWithIdentifier` command and the persisted log. |
-| iCloud Backup shows "Off" | Not signed into iCloud on this iPhone, or the iCloud capability isn't on the App ID (Signing & Capabilities). Local sync still works; nothing is backed up. |
+| Import says "doesn't look like a SleepVue backup" | You picked a folder with no `slp_*.bin`/`tombstones.json` — choose the `SleepVue Backup` folder itself, not its parent. |
 | Signing error mentioning HealthKit | Free provisioning account — HealthKit needs a paid Developer account. |
 
 ## Privacy
 
 No accounts with us, no analytics, no third-party servers. Watch traffic is
-Bluetooth LE only. Sleep data lives in the app's own storage — in your
-iCloud Drive (SleepVue folder) when signed into iCloud, so it survives app
-reinstall; otherwise only on the phone — and, if you opt in, in Apple
-Health (write-only access — the app never reads Health data).
+Bluetooth LE only. Sleep data lives in the app's Documents folder; backups
+go only to a folder you explicitly pick (e.g. your iCloud Drive); and, if
+you opt in, to Apple Health (write-only access — the app never reads
+Health data).
 
 ## Versioning
 

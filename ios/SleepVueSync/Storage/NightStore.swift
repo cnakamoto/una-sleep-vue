@@ -34,7 +34,8 @@ final class NightStore {
 
     /// Active store root. Starts local; activateICloudIfAvailable() may
     /// switch it into the container (never back within a session).
-    private var directory: URL
+    /// Exposed for tombstones.json (TombstoneStore) and backup export.
+    private(set) var directory: URL
 
     private var metadataQuery: NSMetadataQuery?
     private var queryObservers: [NSObjectProtocol] = []
@@ -87,12 +88,13 @@ final class NightStore {
     }
 
     /// Move locally-stored nights (pre-iCloud installs, or nights synced
-    /// while signed out) into the container. On a name clash the container
-    /// copy wins: both came from the same watch, so they are byte-identical.
+    /// while signed out) into the container, tombstones.json included. On a
+    /// name clash the container copy wins: night files from the same watch
+    /// are byte-identical, and single-device tombstone sets can't diverge.
     private func migrateLocalNights(into cloudDirectory: URL) {
         let fm = FileManager.default
         let names = (try? fm.contentsOfDirectory(atPath: localDirectory.path)) ?? []
-        for name in names where name.hasPrefix("slp_") && name.hasSuffix(".bin") {
+        for name in names where (name.hasPrefix("slp_") && name.hasSuffix(".bin")) || name == TombstoneStore.fileName {
             let source = localDirectory.appendingPathComponent(name)
             let destination = cloudDirectory.appendingPathComponent(name)
             if fm.fileExists(atPath: destination.path) {
@@ -174,8 +176,8 @@ final class NightStore {
         try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
     }
 
-    /// "slp_20260903.bin" → "20260903"
-    static func dateKey(fromFileName name: String) -> String? {
+    /// "slp_20260903.bin" → "20260903". Pure — safe to call from anywhere.
+    nonisolated static func dateKey(fromFileName name: String) -> String? {
         guard name.hasPrefix("slp_"), name.hasSuffix(".bin") else { return nil }
         let key = name.dropFirst(4).dropLast(4)
         return key.count == 8 && key.allSatisfy(\.isNumber) ? String(key) : nil

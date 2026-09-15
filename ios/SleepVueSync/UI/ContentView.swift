@@ -8,6 +8,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var state: AppState
     @State private var nightPendingDelete: Night?
+    @State private var pickingBackupFolder: ((URL?) -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -49,18 +50,27 @@ struct ContentView: View {
                 }
 
                 Section {
-                    HStack {
-                        Text("iCloud Backup")
-                        Spacer()
-                        Text(state.backupAvailable ? "On" : "Off")
-                            .foregroundStyle(state.backupAvailable ? .green : .secondary)
+                    Button("Export backup…") {
+                        pickingBackupFolder = { url in
+                            pickingBackupFolder = nil
+                            if let url { state.exportBackup(to: url) }
+                        }
                     }
+                    Button("Import backup…") {
+                        pickingBackupFolder = { url in
+                            pickingBackupFolder = nil
+                            if let url { state.importBackup(from: url) }
+                        }
+                    }
+                    if !state.backupNote.isEmpty {
+                        Text(state.backupNote)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Backup")
                 } footer: {
-                    if state.backupAvailable {
-                        Text("Nights and deletions are backed up to your Apple account and restore automatically if the app is reinstalled. Files are visible under iCloud Drive ▸ SleepVue in the Files app.")
-                    } else {
-                        Text("Sign in to iCloud on this iPhone to back up nights and deletions to your Apple account.")
-                    }
+                    Text("Export writes your nights and deletions to a “SleepVue Backup” folder wherever you choose (e.g. iCloud Drive). Import restores them after a reinstall. Backups are manual for now — automatic iCloud backup needs a paid Apple Developer account.")
                 }
 
                 Section("Synced nights") {
@@ -108,6 +118,15 @@ struct ContentView: View {
             .navigationDestination(for: Night.self) { night in
                 NightDetailView(night: night)
             }
+            .sheet(isPresented: Binding(
+                get: { pickingBackupFolder != nil },
+                set: { if !$0 { pickingBackupFolder = nil } }
+            )) {
+                if let onPick = pickingBackupFolder {
+                    FolderPicker(onPick: onPick)
+                        .ignoresSafeArea()
+                }
+            }
             .alert("Sync problem", isPresented: .constant(state.errorMessage != nil)) {
                 Button("OK") { state.errorMessage = nil }
             } message: {
@@ -127,7 +146,7 @@ struct ContentView: View {
                 }
                 Button("Cancel", role: .cancel) { nightPendingDelete = nil }
             } message: {
-                Text("Removes it from this phone and your iCloud backup, and stops it from syncing again. "
+                Text("Removes it from this phone and stops it from syncing again — restoring a backup won't bring it back. "
                     + "If the watch is connected, its copy is deleted too. "
                     + "Anything already exported stays in Apple Health (SleepVue has write-only access).")
             }
