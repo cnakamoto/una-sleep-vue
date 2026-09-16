@@ -32,8 +32,11 @@ struct SleepEpoch: Equatable, Hashable {
     let date: Date          // start of the 30 s window
     let stage: SleepStage
     let movement: UInt8     // motion event count (0–63)
-    let hr: UInt8           // bpm, 0 = none
+    let hr: UInt8           // bpm (median of accepted 1 Hz samples), 0 = gap epoch
     let spo2: UInt8         // %, 0 = none
+    // Quality byte (watch v0.9.0; both 0/false in older files = unknown):
+    let hrSamples: UInt8    // 1 Hz samples that passed the cleaning gates (cap 63)
+    let hrDropped: Bool     // the watch rejected >= 1 sample this epoch
 }
 
 struct NightFlags: OptionSet, Equatable, Hashable {
@@ -55,10 +58,11 @@ struct NightHeader: Equatable, Hashable {
     let awakeMin: UInt16
     let lightMin: UInt16
     let deepMin: UInt16
-    let hrMin: UInt8        // 0 = no valid HR all session
+    let hrMin: UInt8        // P5 of valid epoch HRs (raw min before v0.9.0); 0 = no valid HR
     let hrAvg: UInt8
-    let hrMax: UInt8
+    let hrMax: UInt8        // P95 (raw max before v0.9.0)
     let flags: NightFlags
+    let hrCoverage: UInt8   // % of epochs with valid HR; 0 = unknown (pre-v0.9.0 file)
 }
 
 /// A maximal stretch of one stage — same computation as plot_night.py `runs()`.
@@ -104,9 +108,47 @@ struct Night: Equatable, Hashable {
     }
 
     var validHR: [Int] { epochs.compactMap { $0.hr > 0 ? Int($0.hr) : nil } }
-    var hrMin: Int { validHR.min() ?? 0 }
-    var hrMax: Int { validHR.max() ?? 0 }
+    /// Night HR range = P5–P95 of the valid epoch HRs (ADR-0005), never the
+    /// raw extremes. Shared integer rank rule sorted[(p*(n-1))/100] — same
+    /// as the watch header and plot_night.py; recomputed here so old files
+    /// display the trimmed range too.
+    var hrMin: Int { Night.percentile(validHR, 5) }
+    var hrMax: Int { Night.percentile(validHR, 95) }
     var hrAvg: Int { validHR.isEmpty ? 0 : validHR.reduce(0, +) / validHR.count }
+    /// % of epochs with a valid HR — what the range and average rest on.
+    var hrCoverage: Int { epochs.isEmpty ? 0 : validHR.count * 100 / epochs.count }
+
+    static func percentile(_ values: [Int], _ p: Int) -> Int {
+        guard !values.isEmpty else { return 0 }
+        let sorted = values.sorted()
+        return sorted[(p * (sorted.count - 1)) / 100]
+    }
+
+    /// A run of this many consecutive gap epochs breaks the HR trace; a
+    /// single missing epoch is bridged. Same rule as plot_night.py.
+    static let hrGapBreakEpochs = 2
+
+    /// Valid-HR epochs split into runs separated by >= `hrGapBreakEpochs`
+    /// gaps, so a chart never draws a line across a real dropout.
+    var hrSegments: [[SleepEpoch]] {
+        var segments: [[SleepEpoch]] = []
+        var current: [SleepEpoch] = []
+        var gap = 0
+        for e in epochs {
+            if e.hr > 0 {
+                if gap >= Night.hrGapBreakEpochs, !current.isEmpty {
+                    segments.append(current)
+                    current = []
+                }
+                current.append(e)
+                gap = 0
+            } else {
+                gap += 1
+            }
+        }
+        if !current.isEmpty { segments.append(current) }
+        return segments
+    }
 
     /// dateKey like 20260903 → a display string like "Wed 3 Sep 2026".
     var displayDate: String {
@@ -155,10 +197,12 @@ enum NightFile {
             hrMin: UInt8(data[26]),
             hrAvg: UInt8(data[27]),
             hrMax: UInt8(data[28]),
-            flags: NightFlags(rawValue: UInt8(data[29]))
+            flags: NightFlags(rawValue: UInt8(data[29])),
+            hrCoverage: UInt8(data[30])
         )
 
-        // EpochRecord: stage:2 | movement:6 | hr:8 | spo2:8 | flags:8 (LE u32)
+        // EpochRecord: stage:2 | movement:6 | hr:8 | spo2:8 | quality:8 (LE u32)
+        // quality: hrSamples:6 | hrDropped:1 | reserved:1
         var epochs: [SleepEpoch] = []
         epochs.reserveCapacity(n)
         for i in 0..<n {
@@ -168,7 +212,9 @@ enum NightFile {
                 stage: SleepStage(rawValue: UInt8(bits & 0x3)) ?? .light,
                 movement: UInt8((bits >> 2) & 0x3F),
                 hr: UInt8((bits >> 8) & 0xFF),
-                spo2: UInt8((bits >> 16) & 0xFF)
+                spo2: UInt8((bits >> 16) & 0xFF),
+                hrSamples: UInt8((bits >> 24) & 0x3F),
+                hrDropped: (bits >> 30) & 0x1 == 1
             ))
         }
 

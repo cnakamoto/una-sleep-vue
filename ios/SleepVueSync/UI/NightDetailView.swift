@@ -120,17 +120,32 @@ struct NightDetailView: View {
 
     private var hrSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Heart rate · \(night.hrMin)–\(night.hrMax) bpm").font(.headline)
-            Chart(night.epochs.filter { $0.hr > 0 }, id: \.date) { epoch in
+            Text("Heart rate · \(night.hrMin)–\(night.hrMax) bpm · \(night.hrCoverage) % coverage")
+                .font(.headline)
+            // One series per contiguous run so the line breaks at dropouts
+            // (>= 2 gap epochs) instead of bridging them.
+            Chart(hrPoints, id: \.epoch.date) { point in
                 LineMark(
-                    x: .value("Time", epoch.date),
-                    y: .value("bpm", epoch.hr)
+                    x: .value("Time", point.epoch.date),
+                    y: .value("bpm", point.epoch.hr),
+                    series: .value("Run", point.run)
                 )
             }
             .chartYScale(domain: .automatic(includesZero: false))
             .foregroundStyle(Color(red: 0.88, green: 0.33, blue: 0.44))
             .frame(height: 160)
             .sleepChartXAxis(xDomain)
+        }
+    }
+
+    private struct HRPoint {
+        let epoch: SleepEpoch
+        let run: Int
+    }
+
+    private var hrPoints: [HRPoint] {
+        night.hrSegments.enumerated().flatMap { run, segment in
+            segment.map { HRPoint(epoch: $0, run: run) }
         }
     }
 

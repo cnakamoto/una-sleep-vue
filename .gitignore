@@ -22,3 +22,6 @@ ios/ParserCheck/parsercheck
 # Xcode user state
 xcuserdata/
 *.xcuserstate
+
+# Python bytecode
+__pycache__/

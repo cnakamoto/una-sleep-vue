@@ -38,15 +38,50 @@ def load(path):
     epochs = []
     for i in range(n):
         (bits,) = struct.unpack("<I", blob[32 + i * 4: 36 + i * 4])
+        q = (bits >> 24) & 0xFF  # v0.9.0 quality byte; 0 in older files
         epochs.append({
             "t": datetime.fromtimestamp(bed + i * 30, timezone.utc).astimezone(LOCAL_TZ),
             "stage": bits & 0x3,
             "move": (bits >> 2) & 0x3F,
             "hr": (bits >> 8) & 0xFF,
+            "hrSamples": q & 0x3F,
+            "hrDropped": bool(q & 0x40),
         })
-    hdr = dict(zip(("total", "awake", "light", "deep", "hrMin", "hrAvg", "hrMax"),
-                   struct.unpack("<HHHHBBB", blob[18:29])))
+    hdr = dict(zip(("total", "awake", "light", "deep", "hrMin", "hrAvg", "hrMax",
+                    "flags", "hrCoverage"),
+                   struct.unpack("<HHHHBBBBB", blob[18:31])))
     return date_key, bed, epochs, hdr
+
+
+def pct(sorted_vals, p):
+    """Night HR range rule shared by watch/Swift/Python (ADR-0005):
+    sorted[(p*(n-1))//100]. Degrades to raw extremes on small n."""
+    if not sorted_vals:
+        return 0
+    return sorted_vals[(p * (len(sorted_vals) - 1)) // 100]
+
+
+# A run of this many consecutive gap epochs (hr=0) breaks the HR trace;
+# a single missing epoch is bridged. Same rule as NightDetailView.swift.
+GAP_BREAK_EPOCHS = 2
+
+
+def hr_segments(ts, epochs):
+    """Valid (t, hr) points split into runs separated by >= GAP_BREAK_EPOCHS
+    gap epochs — never draw a line across a real dropout."""
+    segs, cur, gap = [], [], 0
+    for t, e in zip(ts, epochs):
+        if e["hr"] > 0:
+            if gap >= GAP_BREAK_EPOCHS and cur:
+                segs.append(cur)
+                cur = []
+            cur.append((t, e["hr"]))
+            gap = 0
+        else:
+            gap += 1
+    if cur:
+        segs.append(cur)
+    return segs
 
 
 def frozen_baseline(epochs):
@@ -132,10 +167,13 @@ def main():
     rec_deep = sum(1 for s in recorded if s == 2) // 2
     rec_light = sum(1 for s in recorded if s == 1) // 2
     rec_awake = sum(1 for s in recorded if s == 0) // 2
-    hrs_valid = [e["hr"] for e in epochs if e["hr"] > 0]
-    hr_min = min(hrs_valid) if hrs_valid else 0
+    hrs_valid = sorted(e["hr"] for e in epochs if e["hr"] > 0)
+    hr_min = pct(hrs_valid, 5)     # Night HR range = P5–P95, not extremes
     hr_avg = sum(hrs_valid) // len(hrs_valid) if hrs_valid else 0
-    hr_max = max(hrs_valid) if hrs_valid else 0
+    hr_max = pct(hrs_valid, 95)
+    coverage = len(hrs_valid) * 100 // len(epochs) if epochs else 0
+    n_dropped = sum(1 for e in epochs if e["hrDropped"])
+    n_gap = len(epochs) - len(hrs_valid)
 
     fig, axes = plt.subplots(4, 1, figsize=(13, 10.5), sharex=True,
                              height_ratios=[3, 1.6, 1.6, 1.3],
@@ -149,19 +187,29 @@ def main():
     fig.suptitle(
         f"SleepVue — night of {date_key}   {ts[0]:%a %H:%M} → {ts[-1]:%a %H:%M}   "
         f"total {total_min//60}h{total_min%60:02d}   "
-        f"HR {hr_min}–{hr_max} avg {hr_avg}{trim_note}\n"
+        f"HR {hr_min}–{hr_max} avg {hr_avg}  ({coverage}% coverage, "
+        f"{n_gap} gap epochs, {n_dropped} with drops){trim_note}\n"
         f"recorded: deep {rec_deep}m · light {rec_light}m · awake {rec_awake}m     "
         f"restaged: deep {new_deep_min}m ({new_deep_min * 100 // total_min}%)",
         color="#e8e8f0", fontsize=11, y=0.98)
 
     # --- HR panel ---
-    valid = [(t, e["hr"]) for t, e in zip(ts, epochs) if e["hr"] > 0]
-    vt, vh = zip(*valid)
-    ax_hr.plot(vt, vh, color="#e05570", lw=0.9, alpha=0.85, label="HR (30 s)")
     k = 11
-    sm = [sum(vh[i - k // 2: i + k // 2 + 1]) / k for i in range(k // 2, len(vh) - k // 2)]
-    ax_hr.plot(vt[k // 2: len(vh) - k // 2], sm, color="#ffb3c0", lw=2.0,
-               label="HR trend (5 min)")
+    for si, seg in enumerate(hr_segments(ts, epochs)):
+        vt, vh = zip(*seg)
+        ax_hr.plot(vt, vh, color="#e05570", lw=0.9, alpha=0.85,
+                   label="HR (30 s)" if si == 0 else None)
+        if len(vh) > k:
+            sm = [sum(vh[i - k // 2: i + k // 2 + 1]) / k
+                  for i in range(k // 2, len(vh) - k // 2)]
+            ax_hr.plot(vt[k // 2: len(vh) - k // 2], sm, color="#ffb3c0", lw=2.0,
+                       label="HR trend (5 min)" if si == 0 else None)
+    # Quality ticks (v0.9.0): epochs where the watch rejected >= 1 sample.
+    dropped_t = [t for t, e in zip(ts, epochs) if e["hrDropped"]]
+    if dropped_t:
+        y0 = min(hrs_valid) - 3 if hrs_valid else 0
+        ax_hr.plot(dropped_t, [y0] * len(dropped_t), "|", color="#f0c060",
+                   ms=6, mew=0.8, label=f"sample drops ({len(dropped_t)} epochs)")
     if baseline:
         gate = baseline * (100 - DEEP_HR_DROP_PCT) / 100
         ax_hr.axhline(baseline, color="#7fd4a0", lw=1.0, ls="--",

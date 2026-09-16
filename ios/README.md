@@ -104,11 +104,19 @@ all of this work.
 Source of truth:
 [`SleepVue/Software/Libs/Header/SleepTypes.hpp`](../SleepVue/Software/Libs/Header/SleepTypes.hpp).
 A 32-byte little-endian header (`SLP1` magic, dateKey, bed/wake unix
-epochs, totals, HR stats, flags) followed by 4-byte epoch records
-(`stage:2 | movement:6 | hr:8 | spo2:8 | flags:8`, 30 s epochs). The
-parser (`Model/NightFile.swift`) is a port of
+epochs, totals, HR stats, flags, HR coverage) followed by 4-byte epoch
+records (`stage:2 | movement:6 | hr:8 | spo2:8 | quality:8`, 30 s
+epochs; quality = `hrSamples:6 | hrDropped:1`, zero in pre-0.9.0 files).
+The parser (`Model/NightFile.swift`) is a port of
 [`tools/plot_night.py`](../tools/plot_night.py) and is verified
 byte-exact against it — see *Parser verification* below.
+
+The HR range shown everywhere (`52–88`) is the **P5–P95** of the valid
+epoch HRs, not the extremes (ADR-0005, `docs/adr/0005-trimmed-hr-range.md`);
+the app recomputes it and the coverage % from the epochs rather than
+trusting the header, so nights from older watch builds read the same way.
+The HR chart breaks its line at ≥ 2 consecutive gap epochs (1 min) instead
+of bridging dropouts.
 
 ### Apple Health export
 

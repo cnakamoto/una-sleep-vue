@@ -42,8 +42,13 @@ Service::Service(SDK::Kernel& kernel)
     , mSessionStartMs(0)
     , mNextEpochCloseMs(0)
     , mEpochMovement(0)
-    , mEpochHrSum(0)
+    , mEpochHrSamples{}
     , mEpochHrCount(0)
+    , mEpochHrExtra(0)
+    , mEpochHrDropped(false)
+    , mHrLastBpm(0)
+    , mHrLastMs(0)
+    , mHrPendingBpm(0)
     , mBaselineCount(0)
     , mBaselineBpm(0)
     , mBaselineWindowOpen(true)
@@ -65,10 +70,6 @@ Service::Service(SDK::Kernel& kernel)
     , mAwakeEpochs(0)
     , mLightEpochs(0)
     , mDeepEpochs(0)
-    , mHrSum(0)
-    , mHrValidCount(0)
-    , mHrMin(0)
-    , mHrMax(0)
     , mLiveHr(0)
     , mUnwornSinceMs(0)
     , mBatteryPct(0xFF)
@@ -203,6 +204,14 @@ void Service::handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data)
                         || id == SDK::SensorDataParser::MotionDetect::Motion::SIG_MOTION) {
                     mEpochMovement++;
                 }
+                if (Sleep::Config::kBeatProbeEnabled
+                        && mState == CustomMessage::TrackingState::TRACKING) {
+                    char line[40];
+                    snprintf(line, sizeof(line), "M,%lu,%u\n",
+                             static_cast<unsigned long>(time(nullptr)),
+                             static_cast<unsigned>(id));
+                    probeLine(line);
+                }
             }
         }
         return;
@@ -235,9 +244,29 @@ void Service::handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data)
                 if (bpm == 0) {
                     continue; // sensor ramp-up, not a real sample
                 }
-                mLiveHr = bpm;
-                mEpochHrSum += bpm;
-                mEpochHrCount++;
+                // Cleaning gates (kHr* knobs): the probe nights showed
+                // up to 22% of samples at trust 0/1 feeding straight
+                // into epoch means; rejected samples only set the
+                // epoch's dropped flag, never the aggregate.
+                if (acceptHrSample(bpm, static_cast<uint8_t>(p.getTrustLevel() + 0.5f))) {
+                    mLiveHr = bpm;
+                    if (mEpochHrCount < Sleep::Config::kEpochHrMaxSamples) {
+                        mEpochHrSamples[mEpochHrCount] = bpm;
+                        ++mEpochHrCount;
+                    } else if (mEpochHrExtra < 255) {
+                        ++mEpochHrExtra;
+                    }
+                } else {
+                    mEpochHrDropped = true;
+                }
+                if (Sleep::Config::kBeatProbeEnabled) {
+                    char line[40];
+                    snprintf(line, sizeof(line), "H,%lu,%u,%u\n",
+                             static_cast<unsigned long>(time(nullptr)),
+                             static_cast<unsigned>(p.getBpm() * 10.0f),
+                             static_cast<unsigned>(p.getTrustLevel() + 0.5f));
+                    probeLine(line);
+                }
             }
         }
         return;
@@ -273,6 +302,13 @@ void Service::handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data)
         SDK::SensorDataParser::BatteryLevel p(data[0]);
         if (p.isDataValid()) {
             mBatteryPct = static_cast<uint8_t>(p.getCharge() + 0.5f);
+            if (Sleep::Config::kBeatProbeEnabled) {
+                char line[40];
+                snprintf(line, sizeof(line), "C,%lu,%u\n",
+                         static_cast<unsigned long>(time(nullptr)),
+                         static_cast<unsigned>(mBatteryPct));
+                probeLine(line);
+            }
         }
     }
 }
@@ -287,8 +323,7 @@ void Service::idleEpochClosed()
         ++mOnsetRingCount;
     }
     mEpochMovement = 0;
-    mEpochHrSum = 0;
-    mEpochHrCount = 0;
+    resetEpochHr();
 
     if (mOnsetRingCount < Sleep::Config::kOnsetWindowEpochs || !mWornNow) {
         return;
@@ -334,8 +369,7 @@ void Service::idleEpochClosed()
     // path, so the night file spans bed -> wake coherently.
     for (uint16_t e = 0; e < back; ++e) {
         mEpochMovement = 0;
-        mEpochHrSum = 0;
-        mEpochHrCount = 0;
+        resetEpochHr();
         closeCurrentEpoch();
     }
 }
@@ -353,8 +387,10 @@ void Service::startTracking(uint32_t backdateSec)
     mNextEpochCloseMs = mKernel.sys.getTimeMs() + Sleep::Config::kEpochSec * 1000;
 
     mEpochMovement = 0;
-    mEpochHrSum = 0;
-    mEpochHrCount = 0;
+    resetEpochHr();
+    mHrLastBpm = 0;
+    mHrLastMs = 0;
+    mHrPendingBpm = 0;
     mBaselineCount = 0;
     mBaselineBpm = 0;
     mBaselineWindowOpen = true;
@@ -370,10 +406,6 @@ void Service::startTracking(uint32_t backdateSec)
     mEpochBufCount = 0;
     mFlushedEpochs = 0;
     mAwakeEpochs = mLightEpochs = mDeepEpochs = 0;
-    mHrSum = 0;
-    mHrValidCount = 0;
-    mHrMin = 0;
-    mHrMax = 0;
     mLiveHr = 0;
     mUnwornSinceMs = 0;
     mCloseFlags = 0;
@@ -399,11 +431,40 @@ void Service::startTracking(uint32_t backdateSec)
     // HR + battery are TRACKING-only.
     mSensorHr.connect();
     mSensorBattery.connect();
+
+    if (Sleep::Config::kBeatProbeEnabled) {
+        // Fresh probe log per session (same-date re-track replaces it,
+        // matching the night archive's "newest attempt wins" rule).
+        snprintf(mProbeFile, sizeof(mProbeFile), "prb_%08lu.csv",
+                 static_cast<unsigned long>(hdr.dateKey));
+        {
+            auto file = mKernel.fs.file(mProbeFile);
+            if (file && file->open(true, true)) {
+                file->flush();
+                file->close();
+            }
+        }
+        char line[40];
+        snprintf(line, sizeof(line), "S,%lu\n",
+                 static_cast<unsigned long>(mBedEpoch));
+        probeLine(line);
+        // (v0.9.0: the HEART_BEAT subscription and its K diagnostic are
+        // gone — ADR-0002 proved the sensor absent. The probe now exists
+        // purely as the raw 1 Hz HR trail.)
+    }
 }
 
 void Service::stopTracking()
 {
     LOG_INFO("stop tracking (flags 0x%02x)\n", mCloseFlags);
+
+    if (Sleep::Config::kBeatProbeEnabled) {
+        char line[40];
+        snprintf(line, sizeof(line), "E,%lu,0x%02x\n",
+                 static_cast<unsigned long>(time(nullptr)),
+                 static_cast<unsigned>(mCloseFlags));
+        probeLine(line);
+    }
 
     mSensorHr.disconnect();
     mSensorBattery.disconnect();
@@ -461,9 +522,21 @@ void Service::closeEpochsIfDue()
 
 void Service::closeCurrentEpoch()
 {
+    // Epoch HR = upper median of the accepted samples (sorted[n/2]);
+    // hr_filter_study.py computes the same, so a night's .bin must match
+    // its prb replay byte-for-byte. Insertion sort: <= 32 values.
     uint8_t hrMean = 0;
     if (mEpochHrCount > 0) {
-        hrMean = static_cast<uint8_t>(mEpochHrSum / mEpochHrCount);
+        for (uint8_t i = 1; i < mEpochHrCount; ++i) {
+            uint8_t v = mEpochHrSamples[i];
+            uint8_t j = i;
+            while (j > 0 && mEpochHrSamples[j - 1] > v) {
+                mEpochHrSamples[j] = mEpochHrSamples[j - 1];
+                --j;
+            }
+            mEpochHrSamples[j] = v;
+        }
+        hrMean = mEpochHrSamples[mEpochHrCount / 2];
     }
 
     // Rolling movement window first, so the current epoch is inside its
@@ -532,16 +605,15 @@ void Service::closeCurrentEpoch()
         case Sleep::Stage::LIGHT: ++mLightEpochs; break;
         case Sleep::Stage::DEEP:  ++mDeepEpochs;  break;
     }
-    if (hrMean > 0) {
-        mHrSum += hrMean;
-        ++mHrValidCount;
-        if (mHrMin == 0 || hrMean < mHrMin) mHrMin = hrMean;
-        if (hrMean > mHrMax) mHrMax = hrMean;
-    }
 
     if (mEpochBufCount < Sleep::Config::kFlushEveryEpochs) {
+        // Quality byte: every accepted sample counts (buffered or not),
+        // capped by pack() at 63.
+        uint16_t accepted = static_cast<uint16_t>(mEpochHrCount) + mEpochHrExtra;
         mEpochBuf[mEpochBufCount].bits =
-            Sleep::EpochRecord::pack(stage, mEpochMovement, hrMean, 0);
+            Sleep::EpochRecord::pack(stage, mEpochMovement, hrMean, 0,
+                                     accepted > 63 ? 63 : static_cast<uint8_t>(accepted),
+                                     mEpochHrDropped);
         ++mEpochBufCount;
     }
     if (mEpochBufCount >= Sleep::Config::kFlushEveryEpochs) {
@@ -549,8 +621,7 @@ void Service::closeCurrentEpoch()
     }
 
     mEpochMovement = 0;
-    mEpochHrSum = 0;
-    mEpochHrCount = 0;
+    resetEpochHr();
 }
 
 Sleep::Stage Service::classifyEpoch(uint8_t movement, uint8_t hrMean) const
@@ -568,7 +639,65 @@ Sleep::Stage Service::classifyEpoch(uint8_t movement, uint8_t hrMean) const
     return Sleep::Stage::LIGHT;
 }
 
+// HR cleaning gates — must stay byte-exact with hr_filter_study.py's
+// filter_epoch(), which replays the same prb_*.csv the probe writes.
+bool Service::acceptHrSample(uint8_t bpm, uint8_t trust)
+{
+    using namespace Sleep::Config;
+    if (trust < kHrMinTrust || bpm < kHrMinValidBpm || bpm > kHrMaxValidBpm) {
+        return false;
+    }
+    uint32_t now = mKernel.sys.getTimeMs();
+    if (mHrLastBpm != 0 && now - mHrLastMs <= kHrStaleSec * 1000) {
+        uint8_t jump = bpm > mHrLastBpm ? bpm - mHrLastBpm : mHrLastBpm - bpm;
+        if (jump > kHrSpikeJumpBpm) {
+            uint8_t agree = 0;
+            if (mHrPendingBpm != 0) {
+                agree = bpm > mHrPendingBpm ? bpm - mHrPendingBpm : mHrPendingBpm - bpm;
+            }
+            if (mHrPendingBpm == 0 || agree > kHrSpikeConfirmBpm) {
+                // First sighting of a big step: hold it, drop this sample.
+                mHrPendingBpm = bpm;
+                return false;
+            }
+            // Second sample agrees with the pending one: a real
+            // transition, accept and clear.
+        }
+        mHrPendingBpm = 0;
+    } else {
+        // No chain yet, or the last accepted sample is stale: accept
+        // unconditionally and re-arm.
+        mHrPendingBpm = 0;
+    }
+    mHrLastBpm = bpm;
+    mHrLastMs = now;
+    return true;
+}
+
+void Service::resetEpochHr()
+{
+    mEpochHrCount = 0;
+    mEpochHrExtra = 0;
+    mEpochHrDropped = false;
+}
+
 // ---------------------------------------------------------------- storage
+
+void Service::probeLine(const char* line)
+{
+    if (!Sleep::Config::kBeatProbeEnabled) {
+        return;
+    }
+    auto file = mKernel.fs.file(mProbeFile);
+    if (!file || !file->open(true, false)) {
+        return;
+    }
+    file->seek(file->size());
+    size_t bw = 0;
+    file->write(line, strlen(line), bw);
+    file->flush();
+    file->close();
+}
 
 void Service::flushEpochs()
 {
@@ -600,6 +729,7 @@ void Service::finalizeSessionFile()
     // Recompute header totals from the records on flash — this same path
     // serves a normal close and boot recovery after interruption.
     Sleep::SessionHeader hdr{};
+    uint16_t stillMax = 0;  // longest motion-free run, in epochs
     {
         auto file = mKernel.fs.file(Sleep::kCurrentFile);
         if (!file || !file->open(false)) {
@@ -611,7 +741,8 @@ void Service::finalizeSessionFile()
 
         uint16_t awake = 0, light = 0, deep = 0;
         uint32_t hrSum = 0, hrN = 0;
-        uint8_t hrMin = 0, hrMax = 0;
+        uint16_t hrHist[256] = {};  // valid epoch HR histogram -> P5/P95
+        uint16_t stillRun = 0;
 
         Sleep::EpochRecord rec{};
         for (uint16_t i = 0; i < epochCount; ++i) {
@@ -625,15 +756,36 @@ void Service::finalizeSessionFile()
                 case Sleep::Stage::LIGHT: ++light; break;
                 case Sleep::Stage::DEEP:  ++deep;  break;
             }
+            if (rec.movement() == 0) {
+                if (++stillRun > stillMax) {
+                    stillMax = stillRun;
+                }
+            } else {
+                stillRun = 0;
+            }
             uint8_t bpm = rec.hrBpm();
             if (bpm > 0) {
                 hrSum += bpm;
                 ++hrN;
-                if (hrMin == 0 || bpm < hrMin) hrMin = bpm;
-                if (bpm > hrMax) hrMax = bpm;
+                ++hrHist[bpm];
             }
         }
         file->close();
+
+        // Night HR range (ADR-0005): P5/P95 of the valid epoch HRs with
+        // the shared rank rule sorted[(p*(n-1))/100] — the k-th smallest
+        // read off the histogram. Mirrored by NightFile.swift,
+        // plot_night.py and hr_filter_study.py.
+        uint8_t hrP5 = 0, hrP95 = 0;
+        if (hrN > 0) {
+            uint32_t rank5 = (5 * (hrN - 1)) / 100, rank95 = (95 * (hrN - 1)) / 100;
+            uint32_t seen = 0;
+            for (uint16_t b = 1; b < 256; ++b) {
+                seen += hrHist[b];
+                if (hrP5 == 0 && seen > rank5) hrP5 = static_cast<uint8_t>(b);
+                if (seen > rank95) { hrP95 = static_cast<uint8_t>(b); break; }
+            }
+        }
 
         hdr.epochCount = epochCount;
         hdr.wakeEpoch  = hdr.bedEpoch + epochCount * Sleep::Config::kEpochSec;
@@ -641,16 +793,24 @@ void Service::finalizeSessionFile()
         hdr.awakeMin   = awake * Sleep::Config::kEpochSec / 60;
         hdr.lightMin   = light * Sleep::Config::kEpochSec / 60;
         hdr.deepMin    = deep * Sleep::Config::kEpochSec / 60;
-        hdr.hrMin = hrMin;
+        hdr.hrMin = hrP5;
         hdr.hrAvg = hrN > 0 ? static_cast<uint8_t>(hrSum / hrN) : 0;
-        hdr.hrMax = hrMax;
+        hdr.hrMax = hrP95;
+        hdr.hrCoverage = epochCount > 0
+            ? static_cast<uint8_t>((hrN * 100) / epochCount) : 0;
         hdr.flags |= mCloseFlags;
     }
 
-    if (epochCount == 0 || hdr.totalMin < Sleep::Config::kMinSaveMin) {
-        // Too short to be a night: couch capture, bench test, or nap.
-        // One real night per date is the app's model — discard quietly.
-        LOG_INFO("discarding short session (%u min)\n", hdr.totalMin);
+    if (epochCount == 0 || hdr.totalMin < Sleep::Config::kMinSaveMin
+            || stillMax >= Sleep::Config::kMaxStillEpochs) {
+        // Too short to be a night — or never moved: couch capture,
+        // bench test, nap, or the watch left lying somewhere perfectly
+        // still (a bedside table fools TOUCH_DETECT and feeds the HR
+        // sensor garbage). One real night per date is the app's model —
+        // discard quietly.
+        LOG_INFO("discarding session (%u min, longest still %u min)\n",
+                 hdr.totalMin,
+                 stillMax * Sleep::Config::kEpochSec / 60);
         mKernel.fs.remove(Sleep::kCurrentFile);
         return;
     }

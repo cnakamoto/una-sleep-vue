@@ -14,8 +14,8 @@ Track one sleep session per night, store it on-watch, show analytics:
 - Manual session start/stop (user taps "Start sleep" at bedtime).
   Automatic detection is a later increment (see §9).
 
-Out of scope for v1: REM staging (needs HRV — unproven on this hardware),
-sleep score, alarms/smart-wake, phone sync.
+Out of scope for v1: REM staging (design decided in §9, gated on the
+HEART_BEAT probe), sleep score, alarms/smart-wake, phone sync.
 
 ## 2. Runtime model — the decision that shapes everything
 
@@ -69,7 +69,8 @@ STOP). Sleep data collection must run **all night with the GUI stopped**.
 | AMBIENT_TEMPERATURE | 0x70 | hourly (free-ish) | Nice-to-have context on the summary |
 
 Not used: GPS (indoors, huge power), gyroscope (marginal staging value for
-the power), HEART_BEAT (0x40, no parser — revisit if we attempt HRV/REM).
+the power). HEART_BEAT (0x40, no parser) is under probe as the REM signal
+source — see §9.
 
 `HEART_RATE_METRICS` (0x42, AHR/RHR) may already give us resting HR for
 free — check whether the platform aggregates it overnight; if so, subscribe
@@ -81,8 +82,22 @@ Classic actigraphy + HR, 30-second epochs:
 
 - **Movement intensity** per epoch: count of MOTION/SIG_MOTION events +
   mean accel magnitude deviation.
-- **HR features** per epoch: mean BPM, drop vs. session baseline (first-hour
+- **HR features** per epoch: epoch BPM, drop vs. session baseline (first-hour
   median while motionless).
+- **HR sample cleaning** (v0.9.0, knobs `kHr*` in SleepTypes.hpp): each
+  raw 1 Hz HEART_RATE sample must pass a trust gate (platform trustLevel
+  ≥ 2), a range gate (30–200 bpm) and a spike guard (a > 20 bpm step vs
+  the last accepted sample is held until a second sample confirms it;
+  a > 60 s measurement gap re-arms unconditional acceptance; the chain
+  spans epochs). Epoch BPM = upper median of the accepted samples, not
+  the mean. An epoch with no accepted sample is a *gap epoch* (hr = 0):
+  it never stages DEEP and never feeds the baseline — falls to LIGHT (or
+  AWAKE by motion). Motivation: the 2026-09-13 loose-band night fed 22 %
+  low-trust samples straight into the means, producing a 51 bpm baseline
+  and 32 min of phantom DEEP. Validated by offline replay of the probe
+  logs (`tools/hr_filter_study.py`); the same script's `--compare` mode
+  is the ship gate — a 0.9.0 night's `.bin` must equal its `prb_*.csv`
+  replay byte-for-byte.
 - Classification (deliberately simple, tunable thresholds in one header):
   - movement above threshold → AWAKE
   - no movement, HR within ~5% of baseline → LIGHT
@@ -101,11 +116,20 @@ One file per night + a small index. Binary, fixed-layout, versioned:
 ```
 
 - **Session header** (fixed size): magic, format version, date, bed/wake
-  epoch, totals (duration, stage minutes, HR min/avg/max, movement count,
-  spo2 min/avg), flags (spo2 enabled, aborted).
-- **Epoch record** (4 bytes): stage:2 | movement:6 | hr:8 (bpm, 0=none) |
-  spo2:8 (%, 0=none) | flags:8 → 960 epochs ≈ 4 KB/night. 14 nights ≈ 60 KB
-  total — trivial for flash.
+  epoch, totals (duration, stage minutes, HR range/avg, movement count,
+  spo2 min/avg), flags (spo2 enabled, aborted), HR coverage.
+  - *Night HR range* (v0.9.0, ADR-0005): `hrMin`/`hrMax` are the P5/P95
+    of the valid epoch HRs (rank rule `sorted[(p*(n-1))/100]`), never the
+    raw extremes; `hrCoverage` = % of epochs with valid HR (0 in older
+    files = unknown, and the only way to tell the two header generations
+    apart — the magic stays SLP1). The phone recomputes range and
+    coverage from the epochs, so old nights display the trimmed range too.
+- **Epoch record** (4 bytes): stage:2 | movement:6 | hr:8 (bpm, 0=gap) |
+  spo2:8 (%, 0=none) | quality:8 → 960 epochs ≈ 4 KB/night. 14 nights ≈
+  60 KB total — trivial for flash. Quality (v0.9.0) = hrSamples:6
+  (accepted 1 Hz samples, cap 63) | hrDropped:1 (≥ 1 sample rejected) |
+  reserved:1 — the lightweight rejection trail; the full per-sample
+  reasons are reconstructible from the probe log.
 - Flush every 10 min during TRACKING + on close (seek+rewrite header last).
 - FIFO cleanup at 14 nights. JSON (like AnalogFace's fix cache) only for
   user settings (bedtime window, spo2 opt-in) — never for epoch data.
@@ -148,9 +172,41 @@ GUI → Service:
     to last significant motion (≤30 min, backfilled as LIGHT).
   - Sessions < 3 h are discarded at close (couch captures, naps) —
     one real night per date is the app's model.
+  - Motionless sessions are also discarded at close (v0.7.6): a longest
+    motion-free stretch ≥ 2 h means the watch lay unworn somewhere
+    perfectly still — TOUCH_DETECT is not a reliable unworn signal on a
+    bedside table (the 2026-09-05 table capture ran 12.6 h motionless
+    with plausible garbage HR). Real nights never exceed ~0.7 h.
   - Both rules were validated by offline replay over real nights
     before shipping; knobs in SleepTypes.hpp Config.
-- **REM via HRV**: needs beat-to-beat (HEART_BEAT raw or PPG) — investigate.
+- **REM** — *in study phase (2026-09-14); see ADR-0001 (close-time pass)
+  and ADR-0002 (signal pivot + evidence)*:
+  - Signal: ~~beat-to-beat HRV from HEART_BEAT (0x40)~~ — **absent on
+    this firmware** (v0.8.1 K-probe: isValid()=0, zero events in 3
+    sessions). Fallback: HR-variance features from the epoch records
+    already on flash — no RAM feature array, no feature trailer (the
+    1 Hz within-epoch stdev proved worthless, tools/rem_study.py).
+  - Staging: close-time REM pass (ADR-0001) promoting LIGHT→REM with
+    whole-night context; reads only epoch records. Rule family under
+    study: stillness + across-epoch HR stdev + night-relative HR level
+    (the first-90-min baseline is a proven-fragile anchor) + REM latency
+    and episode structure.
+  - Validation: deferred until a borrowed reference wearable provides
+    per-epoch REM labels (~5 co-worn nights, Apple Watch via HealthKit
+    preferred); F1-only thresholds tuned blind hit 0–16 % REM across
+    9 study nights vs the 20–25 % physiological target. The stats gate
+    becomes a relative-agreement check once labels exist.
+  - Format (when implemented): SLP2/SIDX2. REM=3 fits the existing 2-bit
+    epoch stage field; remMin takes the last SessionHeader reserved byte
+    (uint8, v0.9.0 spent the other on hrCoverage) or SLP2 grows the
+    header — its magic bump frees the layout;
+    IndexSlot grows (rebuilt from night files on migration). Parsers
+    handle both magics; ParserCheck covers old + new nights. FIT
+    dev-field, GUI timeline/palette, HealthKit .asleepREM are mechanical
+    extensions.
+  - Rollout: kRemEnabled compile-time flag, Off until label-tuned rules
+    pass validation; no GUI toggle. The 0.8.1 probe build stays installed
+    as the 1 Hz corpus collector (prb_*.csv per session).
 - **Sleep score**, smart alarm, FIT export of nights.
 - **24/7 model** (post-hoc segmentation instead of armed sessions):
   onset+wake rules above are its segmentation engine; storage redesign

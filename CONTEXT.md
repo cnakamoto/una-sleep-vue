@@ -15,6 +15,30 @@ The fixed 30-second unit of a sleep session. All staging, movement, and HR
 data is aggregated per epoch; a night file is a sequence of epoch records.
 _Avoid_: window, sample, tick
 
+**HR sample**:
+One raw heart-rate reading from the wrist sensor, delivered about once a
+second with a trust level. Samples are cleaned (trust, range, spike gates)
+before the survivors are aggregated into an epoch's HR; a rejected sample
+leaves only a mark on the epoch, never a number. Distinct from an Epoch —
+"sample" is still to be avoided as a synonym for that.
+_Avoid_: reading, tick, measurement
+
+**Gap epoch**:
+An epoch in which no HR sample survived cleaning (or none arrived). It has
+no heart rate, can never be staged DEEP, and does not feed the session
+baseline; a run of them is a dropout, which charts must show as a break,
+never bridge. The share of non-gap epochs is the session's HR coverage.
+_Avoid_: missing epoch, dropped epoch (an epoch with drops may still have
+a heart rate)
+
+**Night HR range**:
+The P5–P95 span of the epoch-level heart rate over a session — the "HR
+52–88" shown on the watch and phone. Deliberately not the extremes: on a
+wrist sensor the single lowest and highest readings are almost always
+artifacts, so the range is trimmed. Zero means no valid HR all session.
+_Avoid_: min/max HR, lowest/highest HR, resting HR (a different, unshipped
+concept)
+
 **Session**:
 One night's recording, from sleep onset to wake. The app models at most one
 real session per date; short or motionless captures are discarded at close.

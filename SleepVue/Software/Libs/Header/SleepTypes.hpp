@@ -55,18 +55,64 @@ constexpr uint16_t kBackfillMaxEpochs   = 60;   // backdate at most 30 min
 // Sessions shorter than this are discarded at close (couch captures,
 // bench tests, naps) — one real night per date is the app's model.
 constexpr uint16_t kMinSaveMin          = 180;
+// ... and sessions whose longest motion-free stretch reaches this many
+// epochs (2 h) are not sleep either: the watch lay unworn somewhere
+// perfectly still. TOUCH_DETECT is NOT a reliable unworn signal on a
+// bedside table — the 2026-09-05 capture "wore" the table for 12.6 h,
+// staging 173 min of DEEP out of garbage optical HR. Real nights never
+// exceed ~0.7 h without a motion event (2026-09-02..06 data).
+constexpr uint16_t kMaxStillEpochs      = 240;  // 2 h
 // Safety aborts while TRACKING.
 constexpr uint8_t  kBatteryAbortPct     = 8;
 constexpr uint32_t kUnwornAbortSec      = 30 * 60;
 // Flush buffered epochs to flash every N epochs (10 min).
 constexpr uint16_t kFlushEveryEpochs    = 20;
+// ---- HR sample cleaning (v0.9.0) -------------------------------------
+// Raw 1 Hz HR is accepted into an epoch only if it passes all gates —
+// motivation: the 2026-09-13 night had 22% of samples at trust 0/1 and
+// 13% of epochs with ONLY low-trust samples; those epochs fed a garbage
+// 51 bpm baseline and 32 min of phantom DEEP (the loose-band failure
+// mode). Validated offline (tools/hr_filter_study.py replaying
+// prb_20260911/0913.csv): the clean 09-11 night is unchanged (baseline
+// 81->82, deep 194->196 min) while 09-13 corrects (baseline ->62,
+// junk-only epochs become honest hr=0 gaps, 82% coverage).
+constexpr uint8_t  kHrMinTrust        = 2;    // platform trustLevel gate
+constexpr uint8_t  kHrMinValidBpm     = 30;   // physiological range, sleep
+constexpr uint8_t  kHrMaxValidBpm     = 200;  // (0 hits in 68k samples — safety net)
+// Spike guard: the platform pre-smooths HR (one >20 bpm 1-s jump in 68k
+// probe samples), so a jump this big is accepted only when it repeats
+// (next sample within kHrSpikeConfirmBpm of the pending value). After a
+// kHrStaleSec measurement gap the next valid sample re-arms the chain.
+constexpr uint8_t  kHrSpikeJumpBpm    = 20;
+constexpr uint8_t  kHrSpikeConfirmBpm = 10;
+constexpr uint32_t kHrStaleSec        = 60;
+// Epoch HR = median of the accepted samples (upper median, sorted[n/2])
+// — robust to residual spikes, unlike the mean (p99 mean-vs-median skew
+// was 4-6 bpm/epoch in the probe nights). Buffer caps the ~30 samples a
+// 1 Hz stream delivers per epoch.
+constexpr uint8_t  kEpochHrMaxSamples = 32;
+// HR probe (ARCHITECTURE.md §9): while TRACKING, log every raw 1 Hz HR
+// sample (bpm x10 + trustLevel) plus motion, battery, session start/end
+// to prb_YYYYMMDD.csv, one line per event (open/seek-end/write/flush/
+// close per line — crash-safe at ~1-2 Hz). Began life as the HEART_BEAT
+// RR probe; the sensor proved absent (ADR-0002) and the subscription is
+// gone since v0.9.0. It stays on as the raw trail behind the cleaned
+// epochs (ADR-0005): hr_filter_study.py --compare replays it against the
+// night's .bin, and every follow-up HR study needs it. The knob keeps its
+// historical name.
+constexpr bool kBeatProbeEnabled        = true;
 // RAM cap on still-HR samples used for the baseline median (8 h worth).
 constexpr uint16_t kBaselineMaxSamples  = 960;
 
 } // namespace Config
 
 // ---- Epoch record: 4 bytes, little-endian ---------------------------
-// stage:2 | movement:6 | hr:8 | spo2:8 (0 = none) | flags:8
+// stage:2 | movement:6 | hr:8 | spo2:8 (0 = none) | quality:8
+// quality (v0.9.0): hrSamples:6 | hrDropped:1 | reserved:1 — the
+// lightweight "reason code" trail: how many 1 Hz samples survived the
+// cleaning gates (63 = cap), and whether any were rejected. The byte is
+// 0 in pre-0.9.0 files (= unknown); readers that mask only bits 0-23
+// are unaffected.
 struct EpochRecord {
     uint32_t bits;
 
@@ -74,20 +120,28 @@ struct EpochRecord {
     static constexpr uint32_t kMoveShift = 2,  kMoveMask = 0x3F  << kMoveShift;
     static constexpr uint32_t kHrShift   = 8,  kHrMask   = 0xFF  << kHrShift;
     static constexpr uint32_t kSpo2Shift = 16, kSpo2Mask = 0xFF  << kSpo2Shift;
+    static constexpr uint32_t kQShift    = 24, kQSamplesMask = 0x3F << kQShift;
+    static constexpr uint32_t kQDroppedBit = 1u << 30;
 
-    static uint32_t pack(Stage s, uint8_t movement, uint8_t hrBpm, uint8_t spo2)
+    static uint32_t pack(Stage s, uint8_t movement, uint8_t hrBpm, uint8_t spo2,
+                         uint8_t hrSamples = 0, bool hrDropped = false)
     {
         uint8_t mv = movement > 63 ? 63 : movement;
+        uint8_t qs = hrSamples > 63 ? 63 : hrSamples;
         return (static_cast<uint32_t>(s) & kStageMask)
              | (static_cast<uint32_t>(mv) << kMoveShift)
              | (static_cast<uint32_t>(hrBpm) << kHrShift)
-             | (static_cast<uint32_t>(spo2) << kSpo2Shift);
+             | (static_cast<uint32_t>(spo2) << kSpo2Shift)
+             | (static_cast<uint32_t>(qs) << kQShift)
+             | (hrDropped ? kQDroppedBit : 0);
     }
 
     Stage   stage()    const { return static_cast<Stage>(bits & kStageMask); }
     uint8_t movement() const { return (bits & kMoveMask) >> kMoveShift; }
     uint8_t hrBpm()    const { return (bits & kHrMask)   >> kHrShift; }
     uint8_t spo2()     const { return (bits & kSpo2Mask) >> kSpo2Shift; }
+    uint8_t hrSamples() const { return (bits & kQSamplesMask) >> kQShift; }
+    bool    hrDropped() const { return (bits & kQDroppedBit) != 0; }
 };
 static_assert(sizeof(EpochRecord) == 4, "epoch record must stay 4 bytes");
 
@@ -104,11 +158,17 @@ struct SessionHeader {
     uint16_t awakeMin;
     uint16_t lightMin;
     uint16_t deepMin;
-    uint8_t  hrMin;          // 0 = no valid HR all session
-    uint8_t  hrAvg;
-    uint8_t  hrMax;
+    // v0.9.0: hrMin/hrMax are ROBUST percentiles of the valid epoch HRs —
+    // P5 / P95 with the shared integer rank rule sorted[(p*(n-1))/100]
+    // (mirrored by NightFile.swift and tools/plot_night.py; degrades to
+    // raw extremes on small n). Pre-0.9.0 files hold raw min/max here.
+    // A single garbage epoch must not set the night's "resting" HR.
+    uint8_t  hrMin;          // P5 of valid epoch HRs; 0 = no valid HR all session
+    uint8_t  hrAvg;          // mean of valid epoch HRs
+    uint8_t  hrMax;          // P95 of valid epoch HRs
     uint8_t  flags;          // bit0 unworn abort, bit1 battery abort, bit2 interrupted (power-off/USB)
-    uint8_t  reserved[2];
+    uint8_t  hrCoverage;     // % of epochs with valid HR (v0.9.0; 0 in older files = unknown)
+    uint8_t  reserved[1];
 };
 static_assert(sizeof(SessionHeader) == 32, "session header must stay 32 bytes");
 

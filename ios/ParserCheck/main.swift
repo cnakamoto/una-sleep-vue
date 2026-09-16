@@ -36,10 +36,19 @@ for path in CommandLine.arguments.dropFirst() {
         print("dateKey=\(h.dateKey) bed=\(fmtTime(night.bed)) wake=\(fmtTime(night.wake))")
         print("header: epochs=\(h.epochCount) total=\(h.totalMin) awake=\(h.awakeMin) "
             + "light=\(h.lightMin) deep=\(h.deepMin) hr=\(h.hrMin)/\(h.hrAvg)/\(h.hrMax) "
-            + String(format: "flags=0x%02X", h.flags.rawValue))
+            + String(format: "flags=0x%02X", h.flags.rawValue) + " coverage=\(h.hrCoverage)")
+        let dropped = night.epochs.filter { $0.hrDropped }.count
         print("derived: total=\(night.totalMinutes) awake=\(night.minutes(of: .awake)) "
             + "light=\(night.minutes(of: .light)) deep=\(night.minutes(of: .deep)) "
-            + "hr=\(night.hrMin)/\(night.hrAvg)/\(night.hrMax)")
+            + "hr=\(night.hrMin)/\(night.hrAvg)/\(night.hrMax) coverage=\(night.hrCoverage) "
+            + "gaps=\(night.epochs.count - night.validHR.count) dropped=\(dropped)")
+        // v0.9.0 files (coverage != 0) must agree with the recomputation
+        // exactly — the header is written by the same rank rule.
+        if h.hrCoverage != 0 {
+            let ok = Int(h.hrMin) == night.hrMin && Int(h.hrAvg) == night.hrAvg
+                && Int(h.hrMax) == night.hrMax && Int(h.hrCoverage) == night.hrCoverage
+            print("header==derived: \(ok ? "OK" : "MISMATCH")")
+        }
         print(String(format: "crc32=0x%08X", CRC32.compute(data)))
 
         // Exercise the FTS packet codec round-trips while we're here.

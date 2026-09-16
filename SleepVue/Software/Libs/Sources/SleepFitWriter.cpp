@@ -214,7 +214,7 @@ bool SleepFitWriter::exportNight(SDK::Kernel& kernel, const Sleep::SessionHeader
         .u32(durMs)
         .u16(0)
         .u8(hdr.hrAvg)
-        .u8(hdr.hrMax)
+        .u8(hdr.hrMax)  // P95, deliberately (ADR-0005): not the literal max
         .write();
 
     // Session (sport: generic — the spike question is whether the phone
@@ -229,7 +229,7 @@ bool SleepFitWriter::exportNight(SDK::Kernel& kernel, const Sleep::SessionHeader
         .u8(static_cast<uint8_t>(fit::Sport::Generic))
         .u8(static_cast<uint8_t>(fit::SubSport::Generic))
         .u8(hdr.hrAvg)
-        .u8(hdr.hrMax)
+        .u8(hdr.hrMax)  // P95 (ADR-0005)
         .write();
 
     w.data(L_ACTIVITY)

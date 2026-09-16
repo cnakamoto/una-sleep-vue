@@ -50,8 +50,20 @@ private:
 
     // Current epoch accumulators
     uint8_t                  mEpochMovement;
-    uint16_t                 mEpochHrSum;
-    uint8_t                  mEpochHrCount;
+    // Accepted (cleaned) HR samples of the open epoch; epoch HR is the
+    // median of these, not the mean — one residual spike must not move
+    // the value that feeds staging, baseline, and the header stats.
+    uint8_t                  mEpochHrSamples[Sleep::Config::kEpochHrMaxSamples];
+    uint8_t                  mEpochHrCount;    // accepted, up to buffer cap
+    uint8_t                  mEpochHrExtra;    // accepted beyond the cap
+    bool                     mEpochHrDropped;  // any rejection this epoch
+
+    // HR spike guard state (spans epochs within a session): a >jump bpm
+    // step vs the last accepted sample is held pending until a second
+    // sample confirms it (real transition) or contradicts it (artifact).
+    uint8_t                  mHrLastBpm;       // 0 = no accepted sample yet
+    uint32_t                 mHrLastMs;
+    uint8_t                  mHrPendingBpm;    // 0 = none pending
 
     // Staging state
     uint16_t                 mBaselineCount;
@@ -91,10 +103,6 @@ private:
     uint16_t                 mAwakeEpochs;
     uint16_t                 mLightEpochs;
     uint16_t                 mDeepEpochs;
-    uint32_t                 mHrSum;
-    uint32_t                 mHrValidCount;
-    uint8_t                  mHrMin;
-    uint8_t                  mHrMax;
     uint8_t                  mLiveHr;
 
     // Abort tracking
@@ -112,6 +120,10 @@ private:
     void onStopGUI();
 
     void handleSensorData(uint16_t handle, SDK::Sensor::DataBatch& data);
+    // HR cleaning gates (Sleep::Config kHr* knobs): trust, range, spike
+    // confirmation. true = sample accepted into the epoch aggregate.
+    bool acceptHrSample(uint8_t bpm, uint8_t trust);
+    void resetEpochHr();      // clear the per-epoch sample buffer + flags
 
     void startTracking(uint32_t backdateSec);
     void stopTracking();      // manual stop or abort; uses mCloseFlags
@@ -120,6 +132,13 @@ private:
     void idleEpochClosed();   // IDLE: onset ring + auto-start rule
     Sleep::Stage classifyEpoch(uint8_t movement, uint8_t hrMean) const;
     void flushEpochs();
+
+    // HR probe (Sleep::Config::kBeatProbeEnabled): appends one CSV line
+    // to the session's prb_YYYYMMDD.csv (open/seek-end/write/flush/close
+    // per line — crash-safe). No-ops when the probe is disabled. This is
+    // the raw 1 Hz trail behind every cleaned epoch (ADR-0005 evidence).
+    char                     mProbeFile[24];
+    void probeLine(const char* line);
 
     // Finalizes slp_cur.bin from the epoch records on flash (used by both
     // normal close and boot recovery), then archives it.
