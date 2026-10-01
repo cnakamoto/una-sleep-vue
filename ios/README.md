@@ -124,7 +124,8 @@ trusting the header, so nights from older watch builds read the same way.
 The HR chart breaks its line at ≥ 2 consecutive gap epochs (1 min) instead
 of bridging dropouts. Its y-axis is fixed at 50–90 bpm (v0.11.0) with a
 gridline every 10 bpm, so nights compare at a glance; epochs outside that
-band are clipped.
+band are clipped. The movement chart is likewise fixed at 0–8 events per
+epoch (v0.11.2; the format allows 63, but real nights peak at 7).
 
 ### Apple Health export
 

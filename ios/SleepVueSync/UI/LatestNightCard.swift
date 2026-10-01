@@ -67,6 +67,9 @@ struct LatestNightCard: View {
 /// Shared by the Latest night card and the detail header.
 struct NightFlagBadges: View {
     let flags: NightFlags
+    /// Keep the row's height even with no flags, so content below sits at
+    /// the same y on every night (the detail pager swipes between pages).
+    var reservesRow = false
 
     var body: some View {
         if !flags.isEmpty {
@@ -76,6 +79,8 @@ struct NightFlagBadges: View {
                 if flags.contains(.unwornAbort) { badge("Watch removed") }
                 if flags.contains(.batteryAbort) { badge("Low battery") }
             }
+        } else if reservesRow {
+            badge(" ").hidden()
         }
     }
 

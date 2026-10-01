@@ -29,7 +29,7 @@ struct NightDetailView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(minutesText(night.totalMinutes))
                     .font(.system(size: 44, weight: .semibold, design: .rounded))
@@ -42,7 +42,9 @@ struct NightDetailView: View {
                 .foregroundStyle(.secondary)
             }
 
-            NightFlagBadges(flags: night.header.flags)
+            // Always one badge row tall (blank on unflagged nights) so the
+            // charts don't jump when swiping between flagged/unflagged nights.
+            NightFlagBadges(flags: night.header.flags, reservesRow: true)
         }
     }
 
@@ -164,6 +166,11 @@ struct NightDetailView: View {
                     y: .value("Motion", epoch.movement)
                 )
             }
+            // Fixed 0–8 so bar heights compare across nights. The field can
+            // reach 63, but nights 2026-09-02…15 never exceed 7 (99th pct
+            // ≤ 5), so a 0–63 axis would flatten every bar.
+            .chartYScale(domain: 0...8)
+            .chartPlotStyle { $0.clipped() }   // rare spikes > 8 are cut off
             .foregroundStyle(Color(red: 0.78, green: 0.71, blue: 0.35))
             .frame(height: 100)
             .sleepChartXAxis(xDomain)
