@@ -33,6 +33,8 @@ extension SleepStage {
 
 struct HypnogramView: View {
     let night: Night
+    /// 120 on the detail page; the Latest night card uses a shorter one.
+    var height: CGFloat = 120
 
     var body: some View {
         Chart(night.stageRuns, id: \.start) { run in
@@ -46,7 +48,7 @@ struct HypnogramView: View {
             .foregroundStyle(run.stage.color)
         }
         .chartYScale(domain: 0...3)
-        .frame(height: 120)
+        .frame(height: height)
         .accessibilityLabel("Hypnogram")
     }
 }

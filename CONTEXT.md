@@ -44,6 +44,14 @@ One night's recording, from sleep onset to wake. The app models at most one
 real session per date; short or motionless captures are discarded at close.
 _Avoid_: night file (that's the storage form), recording
 
+**Latest night**:
+The synced session with the most recent date — the one spotlighted at the
+top of the phone app's home screen. It is whatever was synced most
+recently by date, so it is not necessarily last night's sleep; it always
+carries its date so staleness is visible.
+_Avoid_: last night, most recent sleep, current night (the watch's
+in-progress session is a different thing)
+
 **REM**:
 Rapid-eye-movement sleep. On the wrist it can only be *inferred* — the target
 signature is a motionless body (as in DEEP) with an elevated, irregular heart

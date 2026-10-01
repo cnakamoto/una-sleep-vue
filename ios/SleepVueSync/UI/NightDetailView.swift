@@ -3,7 +3,8 @@
 //  SleepVueSync
 //
 //  One night: summary header, stage split, hypnogram, HR curve, movement.
-//  Same panels as tools/plot_night.py.
+//  Same panels as tools/plot_night.py. Hosted as a page inside
+//  NightPagerView, which owns the navigation title and ‹ › controls.
 //
 
 import Charts
@@ -23,8 +24,6 @@ struct NightDetailView: View {
             }
             .padding()
         }
-        .navigationTitle(night.displayDate)
-        .navigationBarTitleDisplayMode(.inline)
     }
 
     // MARK: - Header
@@ -43,24 +42,8 @@ struct NightDetailView: View {
                 .foregroundStyle(.secondary)
             }
 
-            if !night.header.flags.isEmpty {
-                HStack(spacing: 8) {
-                    if night.header.flags.contains(.autoWake) { badge("Auto-wake") }
-                    if night.header.flags.contains(.interrupted) { badge("Interrupted") }
-                    if night.header.flags.contains(.unwornAbort) { badge("Watch removed") }
-                    if night.header.flags.contains(.batteryAbort) { badge("Low battery") }
-                }
-            }
+            NightFlagBadges(flags: night.header.flags)
         }
-    }
-
-    private func badge(_ text: String) -> some View {
-        Text(text)
-            .font(.caption2.weight(.medium))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Color.secondary.opacity(0.2))
-            .clipShape(Capsule())
     }
 
     // MARK: - Stage split

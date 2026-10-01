@@ -25,6 +25,9 @@
 		AA0000000000000000000212 /* TombstoneStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000112 /* TombstoneStore.swift */; };
 		AA0000000000000000000213 /* BackupTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000113 /* BackupTransfer.swift */; };
 		AA0000000000000000000214 /* FolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000114 /* FolderPicker.swift */; };
+		AA0000000000000000000215 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000115 /* SettingsView.swift */; };
+		AA0000000000000000000216 /* LatestNightCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000116 /* LatestNightCard.swift */; };
+		AA0000000000000000000217 /* NightPagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000117 /* NightPagerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +52,9 @@
 		AA0000000000000000000112 /* TombstoneStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TombstoneStore.swift; sourceTree = "<group>"; };
 		AA0000000000000000000113 /* BackupTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupTransfer.swift; sourceTree = "<group>"; };
 		AA0000000000000000000114 /* FolderPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderPicker.swift; sourceTree = "<group>"; };
+		AA0000000000000000000115 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000116 /* LatestNightCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatestNightCard.swift; sourceTree = "<group>"; };
+		AA0000000000000000000117 /* NightPagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightPagerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +139,9 @@
 				AA000000000000000000010A /* Formatters.swift */,
 				AA0000000000000000000110 /* SleepChartStyle.swift */,
 				AA0000000000000000000114 /* FolderPicker.swift */,
+				AA0000000000000000000115 /* SettingsView.swift */,
+				AA0000000000000000000116 /* LatestNightCard.swift */,
+				AA0000000000000000000117 /* NightPagerView.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -231,6 +240,9 @@
 				AA000000000000000000020F /* DebugLog.swift in Sources */,
 				AA0000000000000000000210 /* SleepChartStyle.swift in Sources */,
 				AA0000000000000000000214 /* FolderPicker.swift in Sources */,
+				AA0000000000000000000215 /* SettingsView.swift in Sources */,
+				AA0000000000000000000216 /* LatestNightCard.swift in Sources */,
+				AA0000000000000000000217 /* NightPagerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -361,7 +373,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = GH8K543Z3V;
+				DEVELOPMENT_TEAM = KC62JF7ZQN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SleepVueSync/Info.plist;
@@ -369,7 +381,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sleepvue.sync;
 				PRODUCT_NAME = SleepVue;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -387,7 +399,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = GH8K543Z3V;
+				DEVELOPMENT_TEAM = KC62JF7ZQN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SleepVueSync/Info.plist;
@@ -395,7 +407,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sleepvue.sync;
 				PRODUCT_NAME = SleepVue;
 				SWIFT_EMIT_LOC_STRINGS = YES;

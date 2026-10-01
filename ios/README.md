@@ -25,6 +25,9 @@ go only where you choose to put them.
 | Aligned chart time axes | v0.7.0 | Shared x domain, hourly gridlines across all panels |
 | App icon | v0.7.0 | Zz glyph matching the watch app icon (`tools/make_ios_icon.py`) |
 | Backup export/import | v0.8.0 | Nights + deletions survive app deletion/reinstall; manual folder picker (automatic iCloud backup deferred — needs a paid Developer account, see `docs/adr/0004`) |
+| Settings sheet | v0.10.0 | Gear (top right) → Apple Health, watch prune, backup, BLE debug log; home screen is connection + nights only |
+| Latest night card | v0.10.0 | Hero total, mini hypnogram, deep/light/HR at the top of the home screen; tap to open |
+| Swipe between nights | v0.10.0 | Detail pages chronologically (swipe left = newer); ‹ › toolbar buttons too |
 
 ## Requirements
 
@@ -129,7 +132,7 @@ Results appear under Health → Browse → Sleep with SleepVue as the source.
 
 ### Backup and restore (manual export)
 
-**Export backup…** writes a `SleepVue Backup/` folder into any folder you
+**Export backup…** (Settings › Backup) writes a `SleepVue Backup/` folder into any folder you
 pick — iCloud Drive, Dropbox, a Mac over AirDrop — containing the raw
 `slp_YYYYMMDD.bin` night files plus `tombstones.json` (the record of
 nights you deleted). **Import backup…** restores from that folder after a
@@ -196,7 +199,8 @@ ios/
 │   │   ├── BackupTransfer.swift   manual backup export/import (Foundation-only)
 │   │   └── DebugLog.swift         persistent rolling log (Documents/ble-debug.log)
 │   ├── Health/HealthKitExporter.swift
-│   └── UI/                        ContentView, NightDetailView, HypnogramView, Formatters
+│   └── UI/                        ContentView (home), SettingsView (sheet), LatestNightCard,
+│                                  NightPagerView (swipe ‹ ›) → NightDetailView, HypnogramView
 └── ParserCheck/                   swiftc CLI harness (see below)
 ```
 

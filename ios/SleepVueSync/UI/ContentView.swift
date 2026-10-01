@@ -2,13 +2,17 @@
 //  ContentView.swift
 //  SleepVueSync
 //
+//  Home screen: connection + sync, the Latest night card, and the list of
+//  synced nights. Configuration and diagnostics live in SettingsView
+//  (gear, top right); nights open in NightPagerView.
+//
 
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var state: AppState
     @State private var nightPendingDelete: Night?
-    @State private var pickingBackupFolder: ((URL?) -> Void)?
+    @State private var showingSettings = false
 
     var body: some View {
         NavigationStack {
@@ -26,51 +30,14 @@ struct ContentView: View {
                     }
                 }
 
-                Section("Apple Health") {
-                    Toggle("Write nights to Apple Health", isOn: Binding(
-                        get: { state.healthExportEnabled },
-                        set: { state.setHealthExport($0) }
-                    ))
-                    if !state.healthNote.isEmpty {
-                        Text(state.healthNote)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section {
-                    Toggle("Delete from watch after sync", isOn: Binding(
-                        get: { state.pruneAfterSync },
-                        set: { state.setPrune($0) }
-                    ))
-                } header: {
-                    Text("Watch")
-                } footer: {
-                    Text("Archived nights are removed from the watch only after a verified transfer. The watch keeps its own on-device summaries and history.")
-                }
-
-                Section {
-                    Button("Export backup…") {
-                        pickingBackupFolder = { url in
-                            pickingBackupFolder = nil
-                            if let url { state.exportBackup(to: url) }
+                // Hidden when there are no nights — the list below already
+                // carries the single empty-state message.
+                if let latest = state.nights.first {
+                    Section("Latest night") {
+                        NavigationLink(value: latest) {
+                            LatestNightCard(night: latest)
                         }
                     }
-                    Button("Import backup…") {
-                        pickingBackupFolder = { url in
-                            pickingBackupFolder = nil
-                            if let url { state.importBackup(from: url) }
-                        }
-                    }
-                    if !state.backupNote.isEmpty {
-                        Text(state.backupNote)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text("Backup")
-                } footer: {
-                    Text("Export writes your nights and deletions to a “SleepVue Backup” folder wherever you choose (e.g. iCloud Drive). Import restores them after a reinstall. Backups are manual for now — automatic iCloud backup needs a paid Apple Developer account.")
                 }
 
                 Section("Synced nights") {
@@ -90,42 +57,23 @@ struct ContentView: View {
                         }
                     }
                 }
-
-                Section {
-                    DisclosureGroup("BLE debug log") {
-                        if state.client.debugLog.isEmpty {
-                            Text("No events yet.")
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(Array(state.client.debugLog.enumerated()), id: \.offset) { _, line in
-                                Text(line)
-                                    .font(.caption2.monospaced())
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
-                            }
-                            Button("Clear log", role: .destructive) {
-                                state.client.clearDebugLog()
-                            }
-                            .font(.caption)
-                        }
-                    }
-                } footer: {
-                    Text("Persists across launches, so background syncs leave a trail. Background refresh runs a few times a day at iOS's discretion.")
-                }
             }
             .navigationTitle("SleepVue")
-            .navigationDestination(for: Night.self) { night in
-                NightDetailView(night: night)
-            }
-            .sheet(isPresented: Binding(
-                get: { pickingBackupFolder != nil },
-                set: { if !$0 { pickingBackupFolder = nil } }
-            )) {
-                if let onPick = pickingBackupFolder {
-                    FolderPicker(onPick: onPick)
-                        .ignoresSafeArea()
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
                 }
+            }
+            .navigationDestination(for: Night.self) { night in
+                NightPagerView(initial: night)
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
             }
             .alert("Sync problem", isPresented: .constant(state.errorMessage != nil)) {
                 Button("OK") { state.errorMessage = nil }
