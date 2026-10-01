@@ -17,7 +17,7 @@ import Foundation
 
 enum BackgroundSync {
 
-    static let identifier = "com.sleepvue.sync.refresh"
+    static let identifier = "com.claero.sleepvue.refresh"
     private static let refreshInterval: TimeInterval = 3 * 3600
 
     /// Must be called during app launch (registration is only valid then).

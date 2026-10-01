@@ -166,7 +166,7 @@ syncing.
 
 ### Background sync
 
-A `BGAppRefreshTask` (`com.sleepvue.sync.refresh`) is registered at
+A `BGAppRefreshTask` (`com.claero.sleepvue.refresh`) is registered at
 launch and re-chained after every run and on backgrounding; requested
 every 3 h, actual timing at iOS's discretion. On fire it runs the normal
 sync headless (discovery path 2 above means no advertisement is needed),
@@ -214,7 +214,7 @@ button included.
 **Force a background refresh** from the Xcode debugger console:
 
 ```
-e -l objc -- (void)[[BGTaskScheduler shared] _simulateLaunchForTaskWithIdentifier:@"com.sleepvue.sync.refresh"]
+e -l objc -- (void)[[BGTaskScheduler shared] _simulateLaunchForTaskWithIdentifier:@"com.claero.sleepvue.refresh"]
 ```
 
 **Parser verification (ParserCheck)** — the SLP1 parser and FTS packet

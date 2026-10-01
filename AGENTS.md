@@ -15,7 +15,7 @@ paid Developer account, see `docs/adr/0004-manual-backup-free-team.md`).
 Full app docs: `ios/README.md`; agent notes: `ios/CLAUDE.md`. Debug:
 persisted BLE log at Documents/ble-debug.log on the phone (also shown
 in-app); trigger a test refresh from the debugger with
-`_simulateLaunchForTaskWithIdentifier:@"com.sleepvue.sync.refresh"`.
+`_simulateLaunchForTaskWithIdentifier:@"com.claero.sleepvue.refresh"`.
 Key facts: watch discovery must go through
 `retrieveConnectedPeripherals` (iOS holds an ANCS link, so the watch
 never advertises); SLP1 parser changes must keep passing
