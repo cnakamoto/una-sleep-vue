@@ -119,7 +119,9 @@ epoch HRs, not the extremes (ADR-0005, `docs/adr/0005-trimmed-hr-range.md`);
 the app recomputes it and the coverage % from the epochs rather than
 trusting the header, so nights from older watch builds read the same way.
 The HR chart breaks its line at ≥ 2 consecutive gap epochs (1 min) instead
-of bridging dropouts.
+of bridging dropouts. Its y-axis is fixed at 50–90 bpm (v0.11.0) with a
+gridline every 10 bpm, so nights compare at a glance; epochs outside that
+band are clipped.
 
 ### Apple Health export
 

@@ -107,19 +107,42 @@ struct NightDetailView: View {
                 .font(.headline)
             // One series per contiguous run so the line breaks at dropouts
             // (>= 2 gap epochs) instead of bridging them.
-            Chart(hrPoints, id: \.epoch.date) { point in
-                LineMark(
-                    x: .value("Time", point.epoch.date),
-                    y: .value("bpm", point.epoch.hr),
-                    series: .value("Run", point.run)
-                )
+            // Fixed 50–90 bpm scale so nights are comparable at a glance.
+            // The y-axis stays hidden (shared plot rect for alignment), so
+            // the 10 bpm gridlines are RuleMarks labelled inside the plot.
+            Chart {
+                ForEach(Self.hrGridlines, id: \.self) { bpm in
+                    RuleMark(y: .value("bpm", bpm))
+                        .lineStyle(StrokeStyle(lineWidth: 0.5))
+                        .foregroundStyle(Color.secondary.opacity(0.4))
+                        .annotation(
+                            // Top line's label goes below it so the clip keeps it.
+                            position: bpm == Self.hrDomain.upperBound ? .bottom : .top,
+                            alignment: .leading, spacing: 1
+                        ) {
+                            Text("\(bpm)")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        }
+                }
+                ForEach(hrPoints, id: \.epoch.date) { point in
+                    LineMark(
+                        x: .value("Time", point.epoch.date),
+                        y: .value("bpm", point.epoch.hr),
+                        series: .value("Run", point.run)
+                    )
+                    .foregroundStyle(Color(red: 0.88, green: 0.33, blue: 0.44))
+                }
             }
-            .chartYScale(domain: .automatic(includesZero: false))
-            .foregroundStyle(Color(red: 0.88, green: 0.33, blue: 0.44))
+            .chartYScale(domain: Self.hrDomain)
+            .chartPlotStyle { $0.clipped() }   // epochs outside 50–90 are cut off
             .frame(height: 160)
             .sleepChartXAxis(xDomain)
         }
     }
+
+    private static let hrDomain = 50...90
+    private static let hrGridlines = Array(stride(from: 50, through: 90, by: 10))
 
     private struct HRPoint {
         let epoch: SleepEpoch
