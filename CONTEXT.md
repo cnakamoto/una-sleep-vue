@@ -89,11 +89,15 @@ _Avoid_: deleted list
 **Backup**:
 A copy of the user's nights and tombstones outside the app's own storage,
 so that deleting and reinstalling the app (or losing the phone) does not
-lose sleep history. Currently a folder the user exports to a location of
-their choosing (e.g. iCloud Drive); deletions recorded in it are honored
-on restore — a tombstone always beats a copied night file.
-_Avoid_: archive (implies append-only), sync — "sync" already means the BLE
-transfer from watch to phone; the backup is phone to elsewhere
+lose sleep history. Normally the app's iCloud Drive container, which is
+also where the app keeps its nights — so writing a night is backing it
+up, with no separate step; a folder the user exports to covers the cases
+iCloud can't. Deletions recorded in a backup are honored on restore — a
+tombstone always beats a copied night file. A backup is a mirror, not an
+archive: deleting a night deletes its backup copy.
+_Avoid_: archive (implies append-only — and this one explicitly is not),
+sync — "sync" already means the BLE transfer from watch to phone; the
+backup is phone to elsewhere
 
 **Restore**:
 The recovery of nights and tombstones from a Backup onto a fresh install

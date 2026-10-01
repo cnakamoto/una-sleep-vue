@@ -42,6 +42,13 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    HStack {
+                        Image(systemName: state.backupAvailable ? "checkmark.icloud" : "icloud.slash")
+                            .foregroundStyle(state.backupAvailable ? Color.accentColor : .secondary)
+                            .accessibilityHidden(true)
+                        Text(state.backupAvailable ? "Backed up to iCloud Drive" : "Not backed up to iCloud")
+                        Spacer()
+                    }
                     Button("Export backup…") {
                         pickingBackupFolder = { url in
                             pickingBackupFolder = nil
@@ -62,7 +69,9 @@ struct SettingsView: View {
                 } header: {
                     Text("Backup")
                 } footer: {
-                    Text("Export writes your nights and deletions to a “SleepVue Backup” folder wherever you choose (e.g. iCloud Drive). Import restores them after a reinstall. Backups are manual for now — automatic iCloud backup needs a paid Apple Developer account.")
+                    Text(state.backupAvailable
+                         ? "Nights are saved straight into iCloud Drive, so they restore by themselves after a reinstall — there is nothing to press. Deleting a night deletes the backup copy too. Export writes a separate copy to a folder you choose, for keeping nights outside iCloud."
+                         : "Sign in to iCloud in Settings to back nights up automatically. Until then they live only on this phone — export writes a copy to a folder you choose, and import restores it.")
                 }
 
                 Section {

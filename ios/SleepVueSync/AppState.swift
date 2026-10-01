@@ -31,10 +31,10 @@ final class AppState: ObservableObject {
     // are unaffected (the GUI reads slp_last/slp_idx, never the archives).
     @Published private(set) var pruneAfterSync: Bool
 
-    // Backup: manual export/import via the document picker (free developer
-    // teams can't use the iCloud entitlement — see docs/adr/0004).
-    // backupAvailable tracks the dormant automatic mode: true if the night
-    // store lives in the iCloud Drive container (needs a paid account).
+    // Backup: automatic via the app's iCloud Drive container — writing a
+    // night IS the backup (docs/adr/0006). backupAvailable is true once the
+    // store root is that container; false means signed out of iCloud, where
+    // nights stay in Documents/ and manual export is the only backup.
     @Published private(set) var backupAvailable = false
     @Published private(set) var backupNote = ""
 
@@ -53,8 +53,9 @@ final class AppState: ObservableObject {
     private static let deletedKey = "sleepvue.deletedDateKeys"
 
     /// dateKeys the user deleted — never sync these again, even if the file
-    /// is still on the watch (e.g. watch was offline at delete time). Backed
-    /// up via iCloud KVS so deletions survive an app reinstall.
+    /// is still on the watch (e.g. watch was offline at delete time). Stored
+    /// in tombstones.json inside the store directory, so deletions ride
+    /// along with the backup and survive an app reinstall.
     private var deletedDateKeys: Set<String> {
         tombstoneStore.all()
     }
@@ -81,24 +82,17 @@ final class AppState: ObservableObject {
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        // iCloud arrivals: nights restored onto a fresh install, or files
-        // removed elsewhere — reload, then let tombstones win.
+        // iCloud arrivals: nights or tombstones restored onto a fresh
+        // install, a delete made on another device, or a file removed from
+        // Files ▸ iCloud Drive — reload, then let tombstones win. This is
+        // the only path for tombstone arrivals now (v0.8.0 retired the
+        // iCloud KVS store in favour of tombstones.json).
         store.onRemoteChange = { [weak self] in
             Task { @MainActor in
                 self?.reloadLocal()
                 self?.reconcileTombstones()
             }
         }
-        // Tombstones synced from iCloud (fresh install, or a delete made on
-        // another device) — remove any matching local nights.
-        NotificationCenter.default.addObserver(
-            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.reconcileTombstones() }
-        }
-
         reloadLocal()
 
         // Move the store into iCloud (migrating any existing nights) before
@@ -130,8 +124,9 @@ final class AppState: ObservableObject {
     }
 
     /// Export nights + tombstones into a "SleepVue Backup" folder inside a
-    /// user-picked folder (e.g. iCloud Drive — reachable without the iCloud
-    /// entitlement thanks to the document picker).
+    /// user-picked folder. Redundant with the iCloud container for most
+    /// purposes, but it is the only backup when signed out of iCloud, and
+    /// the only one that leaves Apple's infrastructure.
     func exportBackup(to folder: URL) {
         guard folder.startAccessingSecurityScopedResource() else {
             backupNote = "Couldn't access that folder"

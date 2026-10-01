@@ -4,11 +4,12 @@
 //
 //  Tombstones — dateKeys of nights the user deleted — live in
 //  tombstones.json inside the night-store directory, so the store folder
-//  is a complete backup unit: nights and deletions travel together
-//  through export/import (and, later, through the iCloud container once a
-//  paid developer account enables it — see docs/adr/0004). A tombstoned
-//  night must never reappear, so imports union tombstones before copying
-//  any night files.
+//  is a complete backup unit: nights and deletions travel together,
+//  whether through the iCloud container or a manual export/import
+//  (docs/adr/0006 — this replaced an iCloud KVS store in v0.8.0 and
+//  outlived the constraint that forced the move). A tombstoned night must
+//  never reappear, so imports union tombstones before copying any night
+//  files.
 //
 //  File format: a JSON array of dateKeys, e.g. ["20260903","20260904"].
 //

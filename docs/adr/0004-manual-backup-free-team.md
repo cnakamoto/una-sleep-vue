@@ -1,5 +1,11 @@
 # Manual backup until a paid developer account
 
+**Status**: superseded by ADR-0006 (v0.11.0) — the paid enrollment
+arrived and the iCloud entitlement is back. Manual export/import itself
+was *not* removed: it is still the backup when signed out of iCloud, and
+the tombstones.json decision below outlived the constraint that forced
+it.
+
 ADR-0003's automatic iCloud backup shipped as v0.8.0 but couldn't be
 built: free "personal team" provisioning does not support the iCloud
 capability (Xcode refuses to create a provisioning profile), so the

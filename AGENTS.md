@@ -9,9 +9,11 @@ design doc — keep it current when behavior changes.
 iPhone companion app: `ios/` (SwiftUI; BLE FTS sync per
 `una-sdk/Docs/BLE-File-Transfer-Service.md`, CTS clock write on connect,
 opt-in DELETE-after-sync prune, write-only HealthKit export, BGAppRefresh
-background sync, manual backup export/import of nights + tombstones via
-folder picker since v0.8.0 — automatic iCloud backup deferred until a
-paid Developer account, see `docs/adr/0004-manual-backup-free-team.md`).
+background sync, automatic iCloud Drive backup since v0.11.0 — the night
+store root is the container, visible as `SleepVue` in Files, see
+`docs/adr/0006-icloud-backup-reactivated.md`; manual export/import of
+nights + tombstones via folder picker kept for the signed-out and
+off-Apple cases). Needs the paid Developer team (iCloud capability).
 Full app docs: `ios/README.md`; agent notes: `ios/CLAUDE.md`. Debug:
 persisted BLE log at Documents/ble-debug.log on the phone (also shown
 in-app); trigger a test refresh from the debugger with

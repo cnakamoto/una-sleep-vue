@@ -106,13 +106,23 @@ final class NightStore {
         }
     }
 
-    /// Watch the container: request downloads for nights that exist only in
-    /// iCloud (fresh reinstall, or files evicted under disk pressure) and
+    /// Watch the container: request downloads for anything that exists only
+    /// in iCloud (fresh reinstall, or files evicted under disk pressure) and
     /// report changes so the UI reloads.
+    ///
+    /// tombstones.json is in scope as well as the night files — a deletion
+    /// arriving from the backup has to trigger a reconcile, which is the
+    /// whole point of "tombstones win, eventually" on a fresh install. It
+    /// also has to be *downloaded* before TombstoneStore can read it, and
+    /// an undownloaded placeholder reads as an empty tombstone set.
     private func startMetadataQuery() {
         let query = NSMetadataQuery()
         query.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
-        query.predicate = NSPredicate(format: "%K LIKE %@", NSMetadataItemFSNameKey, "slp_*.bin")
+        query.predicate = NSPredicate(
+            format: "%K LIKE %@ OR %K == %@",
+            NSMetadataItemFSNameKey, "slp_*.bin",
+            NSMetadataItemFSNameKey, TombstoneStore.fileName
+        )
         metadataQuery = query
 
         let center = NotificationCenter.default

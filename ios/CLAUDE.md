@@ -44,13 +44,21 @@ Read `../AGENTS.md` first (repo-wide rules). Full human documentation:
   travel with backups — never reintroduce a UserDefaults-only store, and
   keep the tombstones-win reconcile (`AppState.reconcileTombstones`)
   wired to backup import and NightStore container arrivals.
-- Backup is manual export/import (`BackupTransfer` + document picker)
-  because free developer teams can't use the iCloud entitlement
-  (docs/adr/0004). Do NOT re-add the iCloud entitlements until a paid
-  Developer account exists — builds stop signing. The automatic mode in
-  `NightStore` (ubiquity container) is intentionally dormant and must
-  stay entitlement-free-safe: `url(forUbiquityContainerIdentifier:)`
-  returns nil → `Documents/SleepNights/` fallback.
+- Backup is the iCloud Drive container: the night store root *is* the
+  backup (docs/adr/0006, live since v0.11.0 on the paid team). The
+  `Documents/SleepNights/` fallback must keep working —
+  `url(forUbiquityContainerIdentifier:)` returning nil (signed out of
+  iCloud) is a supported state, not an error, and `activateIfAvailable`
+  migrates local nights in when iCloud appears. Manual export/import
+  (`BackupTransfer` + document picker) stays as the off-Apple and
+  signed-out path; do not delete it. Changing the container identifier
+  orphans every backed-up night, and `NSUbiquitousContainers` edits need
+  a `CURRENT_PROJECT_VERSION` bump to take effect.
+- Tombstones live in `tombstones.json` in the store directory, never in
+  iCloud KVS (that observer is deleted). `NightStore`'s metadata query
+  predicate must keep matching `tombstones.json` alongside `slp_*.bin` —
+  it is the only path by which a deletion arriving from iCloud triggers
+  `reconcileTombstones`.
 - iCloud must never gate the BLE pipeline: `storedDateKeys()` only sees
   downloaded files (a BLE re-fetch racing a restore is harmless —
   byte-identical content). Import unions tombstones before copying

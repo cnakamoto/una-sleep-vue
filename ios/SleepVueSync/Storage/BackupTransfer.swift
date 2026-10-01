@@ -2,9 +2,10 @@
 //  BackupTransfer.swift
 //  SleepVueSync
 //
-//  Manual backup export/import via the document picker — the one way an
-//  app without the iCloud entitlement (free/personal developer teams) can
-//  reach user-picked locations like iCloud Drive. See docs/adr/0004.
+//  Manual backup export/import via the document picker. Secondary to the
+//  automatic iCloud container backup (docs/adr/0006) and kept for what
+//  that can't do: a copy outside Apple's infrastructure, a backup while
+//  signed out of iCloud, and moving history between bundle identifiers.
 //
 //  A backup is a plain folder ("SleepVue Backup") holding the raw
 //  slp_YYYYMMDD.bin night files plus tombstones.json — the same files the

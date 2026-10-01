@@ -1,9 +1,11 @@
 # iCloud backup for the iOS companion app
 
-**Status**: accepted, but dormant since v0.8.0 — automatic mode requires a
-paid Apple Developer account (free teams can't use the iCloud
-entitlement); superseded in practice by ADR-0004's manual export/import
-until then.
+**Status**: accepted and live since v0.11.0. Was dormant v0.8.0–v0.10.1
+(free teams can't use the iCloud entitlement) with ADR-0004's manual
+export/import standing in; reactivated by ADR-0006, which also records
+the three deliberate departures from the design below — tombstones stay
+in `tombstones.json` rather than iCloud KVS, the container is
+user-visible in Files, and manual export/import is kept alongside.
 
 The iOS app's founding principle was "no account, no server, no network
 access — everything stays on the phone," but that meant deleting the app
