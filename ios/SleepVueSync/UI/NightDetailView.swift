@@ -109,7 +109,7 @@ struct NightDetailView: View {
                 .font(.headline)
             // One series per contiguous run so the line breaks at dropouts
             // (>= 2 gap epochs) instead of bridging them.
-            // Fixed 50–90 bpm scale so nights are comparable at a glance.
+            // Fixed 45–95 bpm scale so nights are comparable at a glance.
             // The y-axis stays hidden (shared plot rect for alignment), so
             // the 10 bpm gridlines are RuleMarks labelled inside the plot.
             Chart {
@@ -117,15 +117,25 @@ struct NightDetailView: View {
                     RuleMark(y: .value("bpm", bpm))
                         .lineStyle(StrokeStyle(lineWidth: 0.5))
                         .foregroundStyle(Color.secondary.opacity(0.4))
-                        .annotation(
-                            // Top line's label goes below it so the clip keeps it.
-                            position: bpm == Self.hrDomain.upperBound ? .bottom : .top,
-                            alignment: .leading, spacing: 1
-                        ) {
+                        .annotation(position: .top, alignment: .leading, spacing: 1) {
                             Text("\(bpm)")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.secondary)
                         }
+                }
+                // Where the curve leaves the band it flattens against the
+                // edge, which would otherwise be indistinguishable from a
+                // genuinely steady 95 bpm — so mark the stretch.
+                ForEach(hrClipRuns, id: \.self) { run in
+                    RuleMark(
+                        xStart: .value("From", run.start),
+                        xEnd: .value("To", run.end),
+                        y: .value("bpm", run.high
+                                  ? Self.hrDomain.upperBound - Self.hrClipInset
+                                  : Self.hrDomain.lowerBound + Self.hrClipInset)
+                    )
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .foregroundStyle(Self.hrColor)
                 }
                 ForEach(hrPoints, id: \.epoch.date) { point in
                     LineMark(
@@ -133,18 +143,81 @@ struct NightDetailView: View {
                         y: .value("bpm", point.epoch.hr),
                         series: .value("Run", point.run)
                     )
-                    .foregroundStyle(Color(red: 0.88, green: 0.33, blue: 0.44))
+                    .foregroundStyle(Self.hrColor)
                 }
             }
             .chartYScale(domain: Self.hrDomain)
-            .chartPlotStyle { $0.clipped() }   // epochs outside 50–90 are cut off
+            .chartPlotStyle { $0.clipped() }   // epochs outside 45–95 are cut off
             .frame(height: 160)
             .sleepChartXAxis(xDomain)
+            .accessibilityLabel(hrClipRuns.isEmpty
+                ? "Heart rate"
+                : "Heart rate, \(hrClipRuns.count) stretch(es) beyond the 45 to 95 band")
         }
     }
 
-    private static let hrDomain = 50...90
+    private static let hrColor = Color(red: 0.88, green: 0.33, blue: 0.44)
+    private static let hrDomain = 45...95
     private static let hrGridlines = Array(stride(from: 50, through: 90, by: 10))
+    /// Clip markers sit 1 bpm inside the bound: drawn exactly on it, the
+    /// plot clip would take half the stroke.
+    private static let hrClipInset = 1
+    private static let epochSeconds: TimeInterval = 30
+    /// Most clips are a single epoch, and 30 s on a 10-hour axis is a third
+    /// of a point wide — invisible. Short runs are widened (centred) to
+    /// this so the marker is actually legible; it exaggerates duration, but
+    /// the marker's job is "the curve left the band here", not "for exactly
+    /// this long".
+    private static let hrClipMinSpan: TimeInterval = 120
+
+    private struct ClipRun: Hashable {
+        let start: Date
+        let end: Date
+        /// Pinned to the top of the band; otherwise the bottom.
+        let high: Bool
+    }
+
+    /// Contiguous stretches whose HR falls outside the fixed band, split by
+    /// which edge they hit. Built from hrSegments, so gap epochs can't leak
+    /// in — hr == 0 means "no sample", not a 0 bpm reading, and treating one
+    /// as a low-side clip would mark every dropout.
+    private var hrClipRuns: [ClipRun] {
+        var runs: [ClipRun] = []
+        for segment in night.hrSegments {
+            var open: ClipRun?
+            for epoch in segment {
+                let hr = Int(epoch.hr)
+                let high = hr > Self.hrDomain.upperBound
+                let outside = high || hr < Self.hrDomain.lowerBound
+                let epochEnd = epoch.date.addingTimeInterval(Self.epochSeconds)
+                if outside {
+                    if let run = open, run.high == high {
+                        open = ClipRun(start: run.start, end: epochEnd, high: high)
+                    } else {
+                        if let run = open { runs.append(run) }   // switched edges
+                        open = ClipRun(start: epoch.date, end: epochEnd, high: high)
+                    }
+                } else if let run = open {
+                    runs.append(run)
+                    open = nil
+                }
+            }
+            if let run = open { runs.append(run) }
+        }
+        return runs.map(Self.widened)
+    }
+
+    /// Grow a run to hrClipMinSpan, keeping it centred on the real clip.
+    private static func widened(_ run: ClipRun) -> ClipRun {
+        let span = run.end.timeIntervalSince(run.start)
+        guard span < hrClipMinSpan else { return run }
+        let grow = (hrClipMinSpan - span) / 2
+        return ClipRun(
+            start: run.start.addingTimeInterval(-grow),
+            end: run.end.addingTimeInterval(grow),
+            high: run.high
+        )
+    }
 
     private struct HRPoint {
         let epoch: SleepEpoch

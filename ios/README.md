@@ -122,9 +122,14 @@ epoch HRs, not the extremes (ADR-0005, `docs/adr/0005-trimmed-hr-range.md`);
 the app recomputes it and the coverage % from the epochs rather than
 trusting the header, so nights from older watch builds read the same way.
 The HR chart breaks its line at ≥ 2 consecutive gap epochs (1 min) instead
-of bridging dropouts. Its y-axis is fixed at 50–90 bpm (v0.11.0) with a
-gridline every 10 bpm, so nights compare at a glance; epochs outside that
-band are clipped. The movement chart is likewise fixed at 0–8 events per
+of bridging dropouts. Its y-axis is fixed at 45–95 bpm (v0.11.3) with a
+gridline every 10 bpm, so nights compare at a glance. Epochs outside the
+band are clipped, and each clipped stretch is marked by a thin horizontal
+rule along the edge it hit — brief clips are widened to ~2 min so the
+marker is visible, so the rule means "the curve left the band here", not
+"for exactly this long". Nights whose P5–P95 itself exceeds the band
+(seen once in 13 recorded nights) read as pinned to the top; the header's
+numeric range is the fallback there. The movement chart is likewise fixed at 0–8 events per
 epoch (v0.11.2; the format allows 63, but real nights peak at 7).
 
 ### Apple Health export
